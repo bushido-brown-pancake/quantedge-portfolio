@@ -76,7 +76,14 @@ async function fetchBatchPrices(symbols, dd, updateExisting = false) {
     for (const sym of symbols) {
         try {
             const data = await fetchLivePrice(sym);
-            if (!data) continue;
+            const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
+            if (!data) {
+                // API failed (market closed or proxies blocked) — show fallback
+                if (cell) {
+                    cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text3);animation:fadeIn .3s ease">Market Closed</div>`;
+                }
+                continue;
+            }
             let db = STOCKS_DB.find(s => s.sym === sym);
             if (!db) {
                 db = { sym, name: data.name, sector: 'Unknown', price: data.price, change: data.change, color: colorForIndex(sym) };
@@ -85,16 +92,22 @@ async function fetchBatchPrices(symbols, dd, updateExisting = false) {
                 db.price = data.price; db.change = data.change;
             }
             liveCache[sym] = { ...(liveCache[sym] || {}), ...data, sym };
-            const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
             if (cell) {
                 const cls = data.change >= 0 ? 'pos' : 'neg';
                 const sign = data.change >= 0 ? '+' : '';
                 cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text);animation:fadeIn .3s ease">${data.currency !== 'USD' ? data.currency + ' ' : '$'}${data.price.toFixed(2)}</div>
         <div class="${cls}" style="font-size:10px;font-family:'Space Mono',monospace">${sign}${data.changeAmt.toFixed(2)} (${sign}${data.change}%)</div>`;
             }
-        } catch (_) { }
+        } catch (_) {
+            // On error, clear the spinner with fallback
+            const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
+            if (cell) {
+                cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text3)">Market Closed</div>`;
+            }
+        }
     }
 }
+
 
 document.addEventListener('click', e => {
     if (!e.target.closest('.search-wrap')) document.getElementById('searchDropdown').classList.remove('show');
