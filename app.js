@@ -321,8 +321,16 @@ async function refreshLivePrices() {
         });
         applyLivePrices();
     } catch (_) {
-        // Network failed — fall back to simulated prices so UI still updates
-        updateLivePrices();
+        // ALL proxies failed — seed livePrices from STOCKS_DB so UI never spins
+        syms.forEach(s => {
+            if (!livePrices[s]) {
+                const db = STOCKS_DB.find(x => x.sym === s);
+                if (db) {
+                    livePrices[s] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
+                }
+            }
+        });
+        applyLivePrices();
     }
 }
 

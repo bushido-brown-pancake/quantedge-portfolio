@@ -291,20 +291,41 @@ function buildTableRow(p, liveData, totalValue) {
 function renderPortfolioTable() {
     const body = document.getElementById('portfolioBody');
     if (!body) return;
+
+    // For each stock, use livePrices if available, else use STOCKS_DB data as fallback
+    // (NEVER show infinite "Loading..." — always show some price)
+    const getPrice = (sym) => {
+        if (livePrices[sym]) return livePrices[sym];
+        const db = STOCKS_DB.find(s => s.sym === sym);
+        if (db) return { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: 0, _offline: true };
+        return null; // truly unknown stock
+    };
+
     const totalValue = state.portfolio.reduce((sum, p) => {
-        const lp = livePrices[p.sym];
+        const lp = getPrice(p.sym);
         return sum + (lp ? lp.price * p.shares : p.avgCost * p.shares);
     }, 0);
-    body.innerHTML = state.portfolio.map(p => buildTableRow(p, livePrices[p.sym] || null, totalValue)).join('');
+
+    body.innerHTML = state.portfolio.map(p => buildTableRow(p, getPrice(p.sym), totalValue)).join('');
+
+    // Try to fetch live prices in the background (once, non-blocking)
     const missing = state.portfolio.filter(p => !livePrices[p.sym]);
-    const stale = state.portfolio.filter(p => livePrices[p.sym] && (Date.now() - (livePrices[p.sym]._ts || 0)) > 60000);
-    [...new Set([...missing, ...stale].map(p => p.sym))].forEach(sym => fetchAndUpdateRow(sym));
+    if (missing.length > 0) {
+        missing.forEach(p => fetchAndUpdateRow(p.sym));
+    }
 }
 
 async function fetchAndUpdateRow(sym) {
     try {
         const data = await fetchLivePrice(sym);
-        if (!data || !data.price) return;
+        if (!data || !data.price) {
+            // API failed — use STOCKS_DB as fallback (mark as _offline)
+            const db = STOCKS_DB.find(s => s.sym === sym);
+            if (db && !livePrices[sym]) {
+                livePrices[sym] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
+            }
+            return;
+        }
         data._ts = Date.now();
         livePrices[sym] = data;
         let db = STOCKS_DB.find(s => s.sym === sym);
@@ -314,21 +335,29 @@ async function fetchAndUpdateRow(sym) {
         } else {
             STOCKS_DB.push({ sym, name: data.name || sym, sector: 'Unknown', price: data.price, change: data.change, color: colorForIndex(sym) });
         }
-        const totalValue = state.portfolio.reduce((sum, p) => {
-            const lp = livePrices[p.sym];
-            return sum + (lp ? lp.price * p.shares : p.avgCost * p.shares);
-        }, 0);
-        const row = document.querySelector(`tr[data-sym="${sym}"]`);
-        if (row) {
-            const holding = state.portfolio.find(p => p.sym === sym);
-            if (holding) {
-                const nr = document.createElement('tbody');
-                nr.innerHTML = buildTableRow(holding, data, totalValue);
-                row.replaceWith(nr.firstElementChild);
-            }
+    } catch (_) {
+        // On error, use STOCKS_DB as fallback
+        const db = STOCKS_DB.find(s => s.sym === sym);
+        if (db && !livePrices[sym]) {
+            livePrices[sym] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
         }
-        renderTopMetrics();
-    } catch (_) { }
+    }
+
+    // Re-render the row
+    const totalValue = state.portfolio.reduce((sum, p) => {
+        const lp = livePrices[p.sym];
+        return sum + (lp ? lp.price * p.shares : p.avgCost * p.shares);
+    }, 0);
+    const row = document.querySelector(`tr[data-sym="${sym}"]`);
+    if (row) {
+        const holding = state.portfolio.find(p => p.sym === sym);
+        if (holding) {
+            const nr = document.createElement('tbody');
+            nr.innerHTML = buildTableRow(holding, livePrices[sym], totalValue);
+            row.replaceWith(nr.firstElementChild);
+        }
+    }
+    renderTopMetrics();
 }
 
 function removeStock(sym) {
