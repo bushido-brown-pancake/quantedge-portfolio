@@ -201,8 +201,72 @@ function patchStockCard(sym, active) {
 }
 
 // ──────────────────────────────────────────────
-// MAIN ENTRY — instant render from ratioCache
-// ratioCache is already populated by refreshLivePrices, or will be by this function
+// FETCH RATIOS via v7/quote (same endpoint as prices — works on GitHub Pages!)
+// ──────────────────────────────────────────────
+const RATIO_FIELDS = [
+    'regularMarketPrice', 'regularMarketChangePercent',
+    'shortName', 'sector',
+    'trailingPE', 'priceToBook', 'priceToSalesTrailing12Months', 'enterpriseToEbitda',
+    'returnOnEquity', 'returnOnAssets', 'profitMargins',
+    'debtToEquity', 'currentRatio',
+    'trailingAnnualDividendYield', 'dividendYield', 'beta',
+].join(',');
+
+async function fetchBatchRatios(syms) {
+    if (!syms.length) return;
+
+    // 1) Check localStorage cache first
+    syms.forEach(s => {
+        const c = lsGet('qratio_' + s, CACHE_TTL);
+        if (c) ratioCache[s] = c;
+    });
+
+    const stale = syms.filter(s => !ratioCache[s]);
+    if (!stale.length) return;
+
+    // 2) ONE batch request with ratio fields
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${stale.join(',')}&fields=${RATIO_FIELDS}`;
+    try {
+        const data = await fetchWithProxy(url);
+        const results = data?.quoteResponse?.result || [];
+        results.forEach(q => {
+            const sym = q.symbol;
+            const r = {
+                pe: q.trailingPE ?? null,
+                pb: q.priceToBook ?? null,
+                ps: q.priceToSalesTrailing12Months ?? null,
+                ev: q.enterpriseToEbitda ?? null,
+                roe: q.returnOnEquity != null ? +(q.returnOnEquity * 100).toFixed(2) : null,
+                roa: q.returnOnAssets != null ? +(q.returnOnAssets * 100).toFixed(2) : null,
+                margin: q.profitMargins != null ? +(q.profitMargins * 100).toFixed(2) : null,
+                de: q.debtToEquity ?? null,
+                cr: q.currentRatio ?? null,
+                fcf: null,
+                div: (q.trailingAnnualDividendYield ?? q.dividendYield) != null
+                    ? +((q.trailingAnnualDividendYield ?? q.dividendYield) * 100).toFixed(2)
+                    : null,
+                beta: q.beta ?? null,
+                _name: q.shortName || sym,
+                _sector: q.sector || '',
+                _ts: Date.now(),
+            };
+            ratioCache[sym] = r;
+            lsSet('qratio_' + sym, r);
+        });
+    } catch (_) {
+        // API failed — mark missing stocks so cards show dashes instead of spinning
+        stale.forEach(s => {
+            if (!ratioCache[s]) {
+                const db = STOCKS_DB.find(x => x.sym === s);
+                ratioCache[s] = { pe: null, pb: null, ps: null, ev: null, roe: null, roa: null, margin: null, de: null, cr: null, fcf: null, div: null, beta: null, _name: db?.name || s, _sector: '', _ts: Date.now() };
+                lsSet('qratio_' + s, ratioCache[s]);
+            }
+        });
+    }
+}
+
+// ──────────────────────────────────────────────
+// MAIN ENTRY — fetch ratios then render cards
 // ──────────────────────────────────────────────
 async function fetchAndRenderRatios() {
     const grid = document.getElementById('ratioCardsGrid');
@@ -220,47 +284,24 @@ async function fetchAndRenderRatios() {
 
     renderRatioChips();
 
-    // ① Render ALL cards immediately (cache or skeleton)
+    // ① Show skeleton cards immediately
     grid.innerHTML = syms.map(sym => buildStockCard(sym, active)).join('');
     renderRatioTable(syms);
 
-    // ② If some symbols are missing from cache, trigger a price+ratio refresh
-    //    refreshLivePrices() populates ratioCache as a side-effect
-    const missing = syms.filter(sym => !ratioCache[sym]);
-    if (missing.length > 0) {
-        if (ts) ts.textContent = `Fetching ${missing.length} stock${missing.length > 1 ? 's' : ''}…`;
-        try {
-            // This call both refreshes prices AND fills ratioCache for all portfolio stocks
-            await refreshLivePrices();
-            // Cards auto-patch because refreshLivePrices calls patchStockCard
-        } catch (_) { }
-    }
+    // ② Fetch ratios via v7/quote batch (same endpoint as prices — works on GH Pages)
+    if (ts) ts.textContent = 'Fetching ratios…';
+    await fetchBatchRatios(syms);
 
-    // ③ Try to enrich FCF yield via yfSummary in the background (non-blocking)
-    syms.forEach(async sym => {
-        if (ratioCache[sym]?.fcf !== null) return; // already have it
-        try {
-            const summary = await yfSummary(sym);
-            if (!summary || !ratioCache[sym]) return;
-            const fd = summary.financialData || {};
-            const pr = summary.price || {};
-            const sd = summary.summaryDetail || {};
-            const raw = v => v?.raw ?? null;
-            const mktCap = raw(pr.marketCap) ?? raw(sd.marketCap);
-            const fcf = raw(fd.freeCashflow);
-            if (mktCap && fcf) {
-                ratioCache[sym].fcf = +((fcf / mktCap) * 100).toFixed(2);
-                lsSet('qratio_' + sym, ratioCache[sym]);
-                patchStockCard(sym, getActiveRatios());
-            }
-        } catch (_) { }
-    });
+    // ③ Patch all cards with the real data
+    syms.forEach(sym => patchStockCard(sym, active));
+    renderRatioTable(syms);
 
     if (ts) {
         const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         ts.textContent = `Updated ${now}`;
     }
 }
+
 
 
 // ──────────────────────────────────────────────
