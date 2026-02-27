@@ -276,9 +276,14 @@ async function refreshLivePrices() {
     if (!syms.length) return;
 
     // Load fresh-enough values from localStorage immediately (instant display)
+    // IMPORTANT: stamp _ts so renderPortfolioTable doesn't treat them as stale
     syms.forEach(s => {
         const c = lsGet('price_' + s, TTL_PRICE);
-        if (c) { livePrices[s] = c; const db = STOCKS_DB.find(x => x.sym === s); if (db) { db.price = c.price; db.change = c.change; } }
+        if (c) {
+            livePrices[s] = { ...c, _ts: Date.now() };
+            const db = STOCKS_DB.find(x => x.sym === s);
+            if (db) { db.price = c.price; db.change = c.change; }
+        }
     });
     applyLivePrices();
 
@@ -286,23 +291,29 @@ async function refreshLivePrices() {
     const stale = syms.filter(s => !lsGet('price_' + s, TTL_PRICE));
     if (!stale.length) return;
 
-    const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
-    const data = await fetchWithProxy(url);
-    const results = data?.quoteResponse?.result || [];
-    results.forEach(q => {
-        const lp = {
-            price: q.regularMarketPrice,
-            change: +(q.regularMarketChangePercent || 0).toFixed(2),
-            changeAmt: +(q.regularMarketChange || 0).toFixed(2),
-            name: q.shortName || q.symbol,
-            currency: q.currency || 'USD',
-        };
-        livePrices[q.symbol] = lp;
-        lsSet('price_' + q.symbol, lp);
-        const db = STOCKS_DB.find(s => s.sym === q.symbol);
-        if (db) { db.price = lp.price; db.change = lp.change; }
-    });
-    applyLivePrices();
+    try {
+        const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+        const data = await fetchWithProxy(url);
+        const results = data?.quoteResponse?.result || [];
+        results.forEach(q => {
+            const lp = {
+                price: q.regularMarketPrice,
+                change: +(q.regularMarketChangePercent || 0).toFixed(2),
+                changeAmt: +(q.regularMarketChange || 0).toFixed(2),
+                name: q.shortName || q.symbol,
+                currency: q.currency || 'USD',
+                _ts: Date.now(),   // ← stamp so table doesn't re-fetch
+            };
+            livePrices[q.symbol] = lp;
+            lsSet('price_' + q.symbol, lp);
+            const db = STOCKS_DB.find(s => s.sym === q.symbol);
+            if (db) { db.price = lp.price; db.change = lp.change; }
+        });
+        applyLivePrices();
+    } catch (_) {
+        // Network failed — fall back to simulated prices so UI still updates
+        updateLivePrices();
+    }
 }
 
 function applyLivePrices() {
