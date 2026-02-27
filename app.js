@@ -185,71 +185,6 @@ function setHorizon(y, label, el) {
     if (el) el.classList.add('active');
 }
 
-// =============================================
-// YAHOO FINANCE API
-// =============================================
-const YF_BASE = 'https://query1.finance.yahoo.com';
-const YF_BASE2 = 'https://query2.finance.yahoo.com';
-const CORS_PROXIES = [
-    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
-let workingProxyIdx = 0;
-
-async function fetchWithProxy(targetUrl) {
-    const order = [workingProxyIdx, ...CORS_PROXIES.map((_, i) => i).filter(i => i !== workingProxyIdx)];
-    for (const idx of order) {
-        try {
-            const res = await fetch(CORS_PROXIES[idx](targetUrl), { signal: AbortSignal.timeout(7000) });
-            if (!res.ok) continue;
-            const text = await res.text();
-            if (!text || text.length < 10) continue;
-            const data = JSON.parse(text);
-            workingProxyIdx = idx;
-            return data;
-        } catch (_) { continue; }
-    }
-    throw new Error('All proxies failed');
-}
-
-async function yfSearch(query) {
-    const url = `${YF_BASE}/v1/finance/search?q=${encodeURIComponent(query)}&lang=en-US&region=US&quotesCount=15&newsCount=0&enableFuzzyQuery=true`;
-    const data = await fetchWithProxy(url);
-    return (data.quotes || []).filter(q => ['EQUITY', 'ETF', 'MUTUALFUND'].includes(q.quoteType));
-}
-async function yfQuote(sym) {
-    const url = `${YF_BASE2}/v8/finance/chart/${sym}?interval=1d&range=1y&includePrePost=false`;
-    const data = await fetchWithProxy(url);
-    const chart = data?.chart?.result?.[0];
-    if (!chart) return null;
-    return { meta: chart.meta, closes: chart.indicators?.quote?.[0]?.close || [], timestamps: chart.timestamp || [] };
-}
-async function yfSummary(sym) {
-    const modules = 'summaryDetail,financialData,defaultKeyStatistics,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,price,assetProfile';
-    const url = `${YF_BASE}/v10/finance/quoteSummary/${sym}?modules=${modules}`;
-    const data = await fetchWithProxy(url);
-    return data?.quoteSummary?.result?.[0] || null;
-}
-async function fetchLivePrice(sym) {
-    const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,shortName,currency`;
-    try {
-        const data = await fetchWithProxy(url);
-        const q = data?.quoteResponse?.result?.[0];
-        if (q) return { price: q.regularMarketPrice, change: +(q.regularMarketChangePercent || 0).toFixed(2), changeAmt: +(q.regularMarketChange || 0).toFixed(2), name: q.shortName || sym, currency: q.currency || 'USD' };
-    } catch (_) { }
-    try {
-        const data2 = await fetchWithProxy(`${YF_BASE2}/v8/finance/chart/${sym}?interval=1d&range=2d`);
-        const meta = data2?.chart?.result?.[0]?.meta;
-        if (meta?.regularMarketPrice) {
-            const prev = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice;
-            const chgPct = prev ? (meta.regularMarketPrice - prev) / prev * 100 : 0;
-            return { price: meta.regularMarketPrice, change: +chgPct.toFixed(2), changeAmt: +(meta.regularMarketPrice - prev).toFixed(2), name: meta.shortName || sym, currency: meta.currency || 'USD' };
-        }
-    } catch (_) { }
-    return null;
-}
-
 function colorForIndex(sym) {
     const palette = ['#d4a843', '#00d4b1', '#4d9fff', '#a855f7', '#ff8c42', '#ff4d6d', '#58d68d', '#85c1e9', '#f1948a', '#aab7b8'];
     let hash = 0;
@@ -262,3 +197,174 @@ function escapeHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+// =============================================
+// LOCALSTORAGE CACHE  (survives page reloads)
+// =============================================
+const LS_PREFIX = 'qe_';
+const TTL_PRICE = 5 * 60 * 1000;   // 5 min  — live prices
+const TTL_SUMMARY = 60 * 60 * 1000;   // 1 hour — fundamentals / ratios
+
+function lsSet(key, data) {
+    try { localStorage.setItem(LS_PREFIX + key, JSON.stringify({ d: data, t: Date.now() })); } catch (_) { }
+}
+function lsGet(key, ttl) {
+    try {
+        const raw = localStorage.getItem(LS_PREFIX + key);
+        if (!raw) return null;
+        const { d, t } = JSON.parse(raw);
+        if (Date.now() - t > ttl) return null;
+        return d;
+    } catch (_) { return null; }
+}
+
+// =============================================
+// YAHOO FINANCE API — FAST
+// =============================================
+const YF_BASE = 'https://query1.finance.yahoo.com';
+const YF_BASE2 = 'https://query2.finance.yahoo.com';
+
+// Three proxies — we race them, fastest wins
+const CORS_PROXIES = [
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
+let workingProxyIdx = 0;
+
+async function fetchWithProxy(targetUrl, ttl = 0) {
+    // 1) Check localStorage cache first
+    if (ttl > 0) {
+        const cached = lsGet('url_' + btoa(targetUrl.slice(-80)), ttl);
+        if (cached) return cached;
+    }
+
+    // 2) Try direct fetch first (works when hosted, skips proxies entirely)
+    try {
+        const res = await fetch(targetUrl, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+            const data = await res.json();
+            if (ttl > 0) lsSet('url_' + btoa(targetUrl.slice(-80)), data);
+            return data;
+        }
+    } catch (_) { }
+
+    // 3) Race the last-known working proxy against the others
+    const order = [workingProxyIdx,
+        ...[0, 1, 2].filter(i => i !== workingProxyIdx)];
+
+    for (const idx of order) {
+        try {
+            const res = await fetch(CORS_PROXIES[idx](targetUrl),
+                { signal: AbortSignal.timeout(4000) });
+            if (!res.ok) continue;
+            const text = await res.text();
+            if (!text || text.length < 10) continue;
+            const data = JSON.parse(text);
+            workingProxyIdx = idx;
+            if (ttl > 0) lsSet('url_' + btoa(targetUrl.slice(-80)), data);
+            return data;
+        } catch (_) { continue; }
+    }
+    throw new Error('All proxies failed');
+}
+
+// ── BATCH live prices for multiple symbols in ONE request ──────────────────
+async function refreshLivePrices() {
+    const syms = [...new Set(state.portfolio.map(p => p.sym))];
+    if (!syms.length) return;
+
+    // Check localStorage first — only fetch symbols that are stale
+    const stale = syms.filter(s => !lsGet('price_' + s, TTL_PRICE));
+    if (!stale.length) {
+        // All fresh from cache
+        syms.forEach(s => {
+            const c = lsGet('price_' + s, TTL_PRICE);
+            if (c) livePrices[s] = c;
+        });
+        applyLivePrices(); return;
+    }
+
+    // One batched request for all stale symbols
+    const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+    try {
+        const data = await fetchWithProxy(url, TTL_PRICE);
+        const results = data?.quoteResponse?.result || [];
+        results.forEach(q => {
+            const lp = {
+                price: q.regularMarketPrice,
+                change: +(q.regularMarketChangePercent || 0).toFixed(2),
+                changeAmt: +(q.regularMarketChange || 0).toFixed(2),
+                name: q.shortName || q.symbol,
+                currency: q.currency || 'USD',
+            };
+            livePrices[q.symbol] = lp;
+            lsSet('price_' + q.symbol, lp);
+
+            // Update STOCKS_DB entry
+            const db = STOCKS_DB.find(s => s.sym === q.symbol);
+            if (db) { db.price = lp.price; db.change = lp.change; }
+        });
+        applyLivePrices();
+    } catch (_) {
+        // Fallback: load from cache even if stale
+        syms.forEach(s => {
+            const c = lsGet('price_' + s, TTL_PRICE * 12); // 1hr fallback
+            if (c) livePrices[s] = c;
+        });
+        updateLivePrices();
+    }
+}
+
+function applyLivePrices() {
+    buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
+}
+
+// ── Single symbol price (used by comparison/search) ─────────────────────────
+async function fetchLivePrice(sym) {
+    const cached = lsGet('price_' + sym, TTL_PRICE);
+    if (cached) return cached;
+
+    const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+    try {
+        const data = await fetchWithProxy(url, TTL_PRICE);
+        const q = data?.quoteResponse?.result?.[0];
+        if (q) {
+            const lp = { price: q.regularMarketPrice, change: +(q.regularMarketChangePercent || 0).toFixed(2), changeAmt: +(q.regularMarketChange || 0).toFixed(2), name: q.shortName || sym, currency: q.currency || 'USD' };
+            lsSet('price_' + sym, lp);
+            return lp;
+        }
+    } catch (_) { }
+    return null;
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+async function yfSearch(query) {
+    const url = `${YF_BASE}/v1/finance/search?q=${encodeURIComponent(query)}&lang=en-US&region=US&quotesCount=15&newsCount=0&enableFuzzyQuery=true`;
+    const data = await fetchWithProxy(url, 60 * 1000); // 1-min cache
+    return (data.quotes || []).filter(q => ['EQUITY', 'ETF', 'MUTUALFUND'].includes(q.quoteType));
+}
+
+// ── Chart data ───────────────────────────────────────────────────────────────
+async function yfQuote(sym) {
+    const url = `${YF_BASE2}/v8/finance/chart/${sym}?interval=1d&range=1y&includePrePost=false`;
+    const data = await fetchWithProxy(url, TTL_SUMMARY);
+    const chart = data?.chart?.result?.[0];
+    if (!chart) return null;
+    return { meta: chart.meta, closes: chart.indicators?.quote?.[0]?.close || [], timestamps: chart.timestamp || [] };
+}
+
+// ── Fundamentals (ratios) — lightweight: skip heavy modules ─────────────────
+async function yfSummary(sym) {
+    const cached = lsGet('summary_' + sym, TTL_SUMMARY);
+    if (cached) return cached;
+
+    // Only fetch the modules we actually use (much faster than all 8)
+    const modules = 'summaryDetail,financialData,defaultKeyStatistics,price,assetProfile';
+    const url = `${YF_BASE}/v10/finance/quoteSummary/${sym}?modules=${modules}`;
+    const data = await fetchWithProxy(url);
+    const result = data?.quoteSummary?.result?.[0] || null;
+    if (result) lsSet('summary_' + sym, result);
+    return result;
+}
+
