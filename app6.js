@@ -36,8 +36,6 @@ const RATIO_THRESHOLDS = {
 
 const RATIO_SCALES = { pe: [0, 60], pb: [0, 10], ps: [0, 20], ev: [0, 40], roe: [0, 50], roa: [0, 25], margin: [0, 50], de: [0, 3], cr: [0, 4], fcf: [0, 10], div: [0, 8], beta: [0, 2.5] };
 
-// Data cache (5-min TTL)
-const ratioCache = {};
 const CACHE_TTL = 5 * 60 * 1000;
 
 // ──────────────────────────────────────────────
