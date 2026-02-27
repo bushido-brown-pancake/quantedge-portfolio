@@ -203,7 +203,8 @@ function patchStockCard(sym, active) {
 }
 
 // ──────────────────────────────────────────────
-// MAIN ENTRY — renders instantly, fetches async
+// MAIN ENTRY — instant render from ratioCache
+// ratioCache is already populated by refreshLivePrices, or will be by this function
 // ──────────────────────────────────────────────
 async function fetchAndRenderRatios() {
     const grid = document.getElementById('ratioCardsGrid');
@@ -221,33 +222,48 @@ async function fetchAndRenderRatios() {
 
     renderRatioChips();
 
-    // ① Render ALL cards immediately (from cache or skeleton data)
+    // ① Render ALL cards immediately (cache or skeleton)
     grid.innerHTML = syms.map(sym => buildStockCard(sym, active)).join('');
     renderRatioTable(syms);
 
-    // ② Fetch missing/stale data stock-by-stock, patch each card as it resolves
-    const needFetch = syms.filter(sym => !ratioCache[sym] || Date.now() - (ratioCache[sym]._ts || 0) > CACHE_TTL);
+    // ② If some symbols are missing from cache, trigger a price+ratio refresh
+    //    refreshLivePrices() populates ratioCache as a side-effect
+    const missing = syms.filter(sym => !ratioCache[sym]);
+    if (missing.length > 0) {
+        if (ts) ts.textContent = `Fetching ${missing.length} stock${missing.length > 1 ? 's' : ''}…`;
+        try {
+            // This call both refreshes prices AND fills ratioCache for all portfolio stocks
+            await refreshLivePrices();
+            // Cards auto-patch because refreshLivePrices calls patchStockCard
+        } catch (_) { }
+    }
 
-    if (needFetch.length > 0 && ts) ts.textContent = `Loading ${needFetch.length} stock${needFetch.length > 1 ? 's' : ''}…`;
-
-    // Fetch in parallel but patch each card as it finishes (not waiting for all)
-    needFetch.forEach(async sym => {
+    // ③ Try to enrich FCF yield via yfSummary in the background (non-blocking)
+    syms.forEach(async sym => {
+        if (ratioCache[sym]?.fcf !== null) return; // already have it
         try {
             const summary = await yfSummary(sym);
-            if (summary) {
-                ratioCache[sym] = { ...extractRatios(sym, summary, livePrices[sym]), _ts: Date.now() };
-                patchStockCard(sym, active);
+            if (!summary || !ratioCache[sym]) return;
+            const fd = summary.financialData || {};
+            const pr = summary.price || {};
+            const sd = summary.summaryDetail || {};
+            const raw = v => v?.raw ?? null;
+            const mktCap = raw(pr.marketCap) ?? raw(sd.marketCap);
+            const fcf = raw(fd.freeCashflow);
+            if (mktCap && fcf) {
+                ratioCache[sym].fcf = +((fcf / mktCap) * 100).toFixed(2);
+                lsSet('qratio_' + sym, ratioCache[sym]);
+                patchStockCard(sym, getActiveRatios());
             }
         } catch (_) { }
     });
 
-    // Update timestamp when all done
-    Promise.allSettled(needFetch.map(sym =>
-        yfSummary(sym).catch(() => null)
-    )).then(() => {
-        if (ts) ts.textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-    });
+    if (ts) {
+        const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        ts.textContent = `Updated ${now}`;
+    }
 }
+
 
 // ──────────────────────────────────────────────
 // RENDER COMPARISON TABLE

@@ -269,52 +269,99 @@ async function fetchWithProxy(targetUrl, ttl = 0) {
     throw new Error('All proxies failed');
 }
 
-// ── BATCH live prices for multiple symbols in ONE request ──────────────────
+// ── BATCH: prices + ratios in ONE request (the endpoint that already works) ──
+const QUOTE_FIELDS = [
+    'regularMarketPrice', 'regularMarketChangePercent', 'regularMarketChange',
+    'shortName', 'currency', 'sector',
+    // Valuation
+    'trailingPE', 'priceToBook', 'priceToSalesTrailing12Months', 'enterpriseToEbitda',
+    // Profitability
+    'returnOnEquity', 'returnOnAssets', 'profitMargins',
+    // Financial health
+    'debtToEquity', 'currentRatio',
+    // Income / Risk
+    'trailingAnnualDividendYield', 'dividendYield', 'beta',
+].join(',');
+
 async function refreshLivePrices() {
     const syms = [...new Set(state.portfolio.map(p => p.sym))];
     if (!syms.length) return;
 
-    // Check localStorage first — only fetch symbols that are stale
-    const stale = syms.filter(s => !lsGet('price_' + s, TTL_PRICE));
-    if (!stale.length) {
-        // All fresh from cache
-        syms.forEach(s => {
-            const c = lsGet('price_' + s, TTL_PRICE);
-            if (c) livePrices[s] = c;
-        });
-        applyLivePrices(); return;
-    }
+    // Load everything available from cache first (instant display)
+    syms.forEach(s => {
+        const cp = lsGet('price_' + s, TTL_PRICE);
+        if (cp) livePrices[s] = cp;
+        const cr = lsGet('qratio_' + s, TTL_PRICE);
+        if (cr && !ratioCache[s]) ratioCache[s] = cr;
+    });
+    applyLivePrices();
 
-    // One batched request for all stale symbols
-    const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+    // Only re-fetch stale ones
+    const stale = syms.filter(s => !lsGet('price_' + s, TTL_PRICE));
+    if (!stale.length) return;
+
+    const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=${QUOTE_FIELDS}`;
     try {
-        const data = await fetchWithProxy(url, TTL_PRICE);
+        const data = await fetchWithProxy(url);
         const results = data?.quoteResponse?.result || [];
         results.forEach(q => {
+            const sym = q.symbol;
+            // Price entry
             const lp = {
                 price: q.regularMarketPrice,
                 change: +(q.regularMarketChangePercent || 0).toFixed(2),
                 changeAmt: +(q.regularMarketChange || 0).toFixed(2),
-                name: q.shortName || q.symbol,
+                name: q.shortName || sym,
                 currency: q.currency || 'USD',
             };
-            livePrices[q.symbol] = lp;
-            lsSet('price_' + q.symbol, lp);
+            livePrices[sym] = lp;
+            lsSet('price_' + sym, lp);
 
-            // Update STOCKS_DB entry
-            const db = STOCKS_DB.find(s => s.sym === q.symbol);
+            // Extract ratios from the same response
+            const r = {
+                pe: q.trailingPE ?? null,
+                pb: q.priceToBook ?? null,
+                ps: q.priceToSalesTrailing12Months ?? null,
+                ev: q.enterpriseToEbitda ?? null,
+                roe: q.returnOnEquity != null ? +(q.returnOnEquity * 100).toFixed(2) : null,
+                roa: q.returnOnAssets != null ? +(q.returnOnAssets * 100).toFixed(2) : null,
+                margin: q.profitMargins != null ? +(q.profitMargins * 100).toFixed(2) : null,
+                de: q.debtToEquity ?? null,
+                cr: q.currentRatio ?? null,
+                fcf: null,  // not in quote endpoint
+                div: (q.trailingAnnualDividendYield ?? q.dividendYield) != null
+                    ? +((q.trailingAnnualDividendYield ?? q.dividendYield) * 100).toFixed(2)
+                    : null,
+                beta: q.beta ?? null,
+                _name: q.shortName || sym,
+                _sector: q.sector || '',
+                _ts: Date.now(),
+            };
+            ratioCache[sym] = r;
+            lsSet('qratio_' + sym, r);
+
+            // Update STOCKS_DB
+            const db = STOCKS_DB.find(s => s.sym === sym);
             if (db) { db.price = lp.price; db.change = lp.change; }
         });
         applyLivePrices();
+
+        // If financials tab is open, patch the ratio cards immediately
+        if (document.getElementById('tab-financials')?.classList.contains('active')) {
+            const active = getActiveRatios();
+            stale.forEach(sym => patchStockCard(sym, active));
+            renderRatioTable(syms);
+        }
     } catch (_) {
-        // Fallback: load from cache even if stale
+        // Fallback: stale cache or simulated values
         syms.forEach(s => {
-            const c = lsGet('price_' + s, TTL_PRICE * 12); // 1hr fallback
+            const c = lsGet('price_' + s, TTL_PRICE * 12);
             if (c) livePrices[s] = c;
         });
         updateLivePrices();
     }
 }
+
 
 function applyLivePrices() {
     buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
