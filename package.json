@@ -1,0 +1,14 @@
+{
+  "name": "quantedge-portfolio",
+  "version": "1.0.0",
+  "description": "QuantEdge — Portfolio Intelligence Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "share": "npx ngrok http 3000"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

@@ -1,0 +1,2352 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuantEdge — Portfolio Intelligence</title>
+  <meta name="description"
+    content="QuantEdge: Advanced portfolio analytics, Monte Carlo simulations, Black-Scholes pricing, and real-time market data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #06090f;
+      --bg2: #0c1219;
+      --bg3: #111a27;
+      --bg-glass: rgba(12, 18, 25, .72);
+      --bg-glass2: rgba(17, 26, 39, .65);
+      --border: rgba(30, 50, 80, .45);
+      --border2: rgba(40, 65, 100, .4);
+      --border-glow: rgba(212, 168, 67, .12);
+      --gold: #d4a843;
+      --gold2: #f0c060;
+      --gold3: #ffd980;
+      --gold-glow: rgba(212, 168, 67, .15);
+      --teal: #00d4b1;
+      --teal-glow: rgba(0, 212, 177, .12);
+      --red: #ff4d6d;
+      --blue: #4d9fff;
+      --purple: #a855f7;
+      --text: #e8edf5;
+      --text2: #8fa3c0;
+      --text3: #4e6a8a;
+      --sidebar-w: 280px;
+      --ticker-h: 36px;
+      --header-h: 64px;
+      --top-offset: calc(var(--ticker-h) + var(--header-h));
+      --radius: 12px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, .4), 0 1px 3px rgba(0, 0, 0, .3);
+      --shadow-lg: 0 8px 40px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .3);
+      --transition: .25s cubic-bezier(.4, 0, .2, 1);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      overflow-x: hidden
+    }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border2);
+      border-radius: 10px
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text3)
+    }
+
+    /* FOCUS */
+    :focus-visible {
+      outline: 2px solid var(--gold);
+      outline-offset: 2px;
+      border-radius: 4px
+    }
+
+    /* ANIMATIONS */
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1)
+      }
+
+      50% {
+        opacity: .4;
+        transform: scale(1.4)
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-4px)
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0)
+      }
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px)
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0)
+      }
+    }
+
+    @keyframes slideUp {
+      from {
+        transform: translateY(24px);
+        opacity: 0
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1
+      }
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(120px);
+        opacity: 0
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -400px 0
+      }
+
+      100% {
+        background-position: 400px 0
+      }
+    }
+
+    @keyframes glow {
+
+      0%,
+      100% {
+        box-shadow: 0 0 5px var(--gold-glow)
+      }
+
+      50% {
+        box-shadow: 0 0 20px var(--gold-glow), 0 0 40px rgba(212, 168, 67, .06)
+      }
+    }
+
+    @keyframes ticker {
+      from {
+        transform: translateX(0)
+      }
+
+      to {
+        transform: translateX(-50%)
+      }
+    }
+
+    @keyframes priceIn {
+      from {
+        opacity: 0;
+        transform: scale(.92)
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1)
+      }
+    }
+
+    /* TICKER TAPE — fixed at very top, above header */
+    .ticker {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+      padding: 8px 0;
+      height: var(--ticker-h);
+      white-space: nowrap;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 102
+    }
+
+    .ticker::before,
+    .ticker::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 80px;
+      z-index: 2;
+      pointer-events: none
+    }
+
+    .ticker::before {
+      left: 0;
+      background: linear-gradient(90deg, var(--bg2), transparent)
+    }
+
+    .ticker::after {
+      right: 0;
+      background: linear-gradient(-90deg, var(--bg2), transparent)
+    }
+
+    .ticker-inner {
+      display: inline-flex;
+      gap: 36px;
+      animation: ticker 35s linear infinite
+    }
+
+    .tick-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 11px
+    }
+
+    .tick-sym {
+      color: var(--gold);
+      font-weight: 700
+    }
+
+    .tick-price {
+      color: var(--text)
+    }
+
+    .tick-chg.pos {
+      color: var(--teal)
+    }
+
+    .tick-chg.neg {
+      color: var(--red)
+    }
+
+    /* HEADER — fixed below ticker */
+    header {
+      position: fixed;
+      top: var(--ticker-h);
+      left: 0;
+      right: 0;
+      height: var(--header-h);
+      background: rgba(6, 9, 15, .92);
+      backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      z-index: 101
+    }
+
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold-glow), var(--teal-glow), transparent)
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 18px;
+      color: var(--gold);
+      letter-spacing: -.5px;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .logo-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--teal);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+      box-shadow: 0 0 8px var(--teal-glow)
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      max-width: 420px
+    }
+
+    .search-wrap input {
+      width: 100%;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 12px 9px 36px;
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      outline: none;
+      transition: all var(--transition);
+      backdrop-filter: blur(8px)
+    }
+
+    .search-wrap input:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px var(--gold-glow)
+    }
+
+    .search-wrap .s-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text3);
+      font-size: 14px
+    }
+
+    .search-dropdown {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      max-height: 280px;
+      overflow-y: auto;
+      display: none;
+      z-index: 200;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(12px)
+    }
+
+    .search-dropdown.show {
+      display: block;
+      animation: fadeIn .2s ease
+    }
+
+    .search-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 16px;
+      color: var(--text3);
+      font-size: 12px
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin .6s linear infinite
+    }
+
+    .search-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all .15s;
+      border-bottom: 1px solid rgba(30, 50, 80, .2)
+    }
+
+    .search-item:last-child {
+      border-bottom: none
+    }
+
+    .search-item:hover {
+      background: rgba(212, 168, 67, .05)
+    }
+
+    .search-item .sym {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      color: var(--gold);
+      font-weight: 700
+    }
+
+    .search-item .name {
+      font-size: 11px;
+      color: var(--text2)
+    }
+
+    .search-item .price {
+      font-size: 12px;
+      color: var(--teal)
+    }
+
+    .search-item .yf-badge {
+      font-size: 8px;
+      padding: 1px 5px;
+      background: rgba(212, 168, 67, .12);
+      color: var(--gold);
+      border-radius: 3px;
+      font-family: 'Space Mono', monospace;
+      letter-spacing: .5px
+    }
+
+    .sector-chips {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      flex: 1;
+      scrollbar-width: none
+    }
+
+    .sector-chips::-webkit-scrollbar {
+      display: none
+    }
+
+    .chip {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border2);
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      color: var(--text2);
+      transition: all var(--transition);
+      backdrop-filter: blur(4px)
+    }
+
+    .chip.active {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border-color: transparent;
+      font-weight: 700;
+      box-shadow: 0 2px 12px var(--gold-glow)
+    }
+
+    .chip:hover:not(.active) {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: var(--gold-glow)
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-left: auto;
+      flex-shrink: 0
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--teal);
+      font-family: 'Space Mono', monospace
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--teal);
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+      box-shadow: 0 0 6px var(--teal-glow)
+    }
+
+    .btn-calc {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all var(--transition);
+      letter-spacing: .3px;
+      position: relative;
+      overflow: hidden
+    }
+
+    .btn-calc:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px var(--gold-glow)
+    }
+
+    .btn-calc:active {
+      transform: translateY(0)
+    }
+
+    /* LAYOUT */
+    .app-body {
+      display: flex;
+      margin-top: var(--top-offset);
+      min-height: calc(100vh - var(--top-offset))
+    }
+
+    /* SIDEBAR */
+    aside {
+      width: var(--sidebar-w);
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      position: fixed;
+      top: var(--top-offset);
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 50;
+      transition: transform .3s ease
+    }
+
+    .s-section {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      backdrop-filter: blur(8px);
+      transition: border-color var(--transition)
+    }
+
+    .s-section:hover {
+      border-color: var(--border2)
+    }
+
+    .s-section h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text3);
+      margin-bottom: 12px
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: var(--text3);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: .8px
+    }
+
+    input[type="number"],
+    select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      outline: none;
+      transition: all var(--transition);
+      margin-bottom: 10px
+    }
+
+    input[type="number"]:focus,
+    select:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px var(--gold-glow)
+    }
+
+    .freq-toggle {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px
+    }
+
+    .freq-btn {
+      flex: 1;
+      padding: 7px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text3);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      text-align: center;
+      transition: all var(--transition)
+    }
+
+    .freq-btn.active {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border-color: transparent
+    }
+
+    .risk-display {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px
+    }
+
+    .risk-val {
+      font-family: 'Space Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gold);
+      text-shadow: 0 0 20px var(--gold-glow)
+    }
+
+    .risk-label {
+      font-size: 10px;
+      color: var(--text3)
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold);
+      margin-bottom: 6px;
+      cursor: pointer;
+      height: 6px
+    }
+
+    .risk-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 10px
+    }
+
+    .horizon-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      margin-bottom: 4px
+    }
+
+    .h-btn {
+      padding: 7px 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text3);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 10px;
+      font-family: 'Space Mono', monospace;
+      text-align: center;
+      transition: all var(--transition)
+    }
+
+    .h-btn.active {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border-color: transparent
+    }
+
+    .h-btn:hover:not(.active) {
+      border-color: var(--gold);
+      color: var(--gold)
+    }
+
+    .check-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px
+    }
+
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 3px 0;
+      transition: color var(--transition)
+    }
+
+    .check-item:hover span {
+      color: var(--text)
+    }
+
+    .check-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--gold);
+      cursor: pointer;
+      margin: 0
+    }
+
+    .check-item span {
+      font-size: 12px;
+      color: var(--text2);
+      transition: color var(--transition)
+    }
+
+    .sector-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px
+    }
+
+    .sector-tag {
+      padding: 6px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 10px;
+      cursor: pointer;
+      text-align: center;
+      color: var(--text2);
+      transition: all var(--transition)
+    }
+
+    .sector-tag.active {
+      background: var(--gold-glow);
+      border-color: var(--gold);
+      color: var(--gold)
+    }
+
+    .sector-tag:hover:not(.active) {
+      border-color: var(--border2);
+      color: var(--text)
+    }
+
+    .export-btns {
+      display: flex;
+      gap: 6px
+    }
+
+    .btn-export {
+      flex: 1;
+      padding: 9px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all var(--transition);
+      text-align: center
+    }
+
+    .btn-pdf {
+      background: rgba(255, 77, 109, .08);
+      border: 1px solid rgba(255, 77, 109, .25);
+      color: var(--red)
+    }
+
+    .btn-pdf:hover {
+      background: rgba(255, 77, 109, .15);
+      transform: translateY(-1px)
+    }
+
+    .btn-xl {
+      background: rgba(0, 212, 177, .08);
+      border: 1px solid rgba(0, 212, 177, .25);
+      color: var(--teal)
+    }
+
+    .btn-xl:hover {
+      background: rgba(0, 212, 177, .15);
+      transform: translateY(-1px)
+    }
+
+    /* HAMBURGER */
+    .hamburger {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text);
+      font-size: 22px;
+      cursor: pointer;
+      padding: 4px
+    }
+
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .6);
+      z-index: 49
+    }
+
+    /* MAIN */
+    main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px
+    }
+
+    /* TABS */
+    .tabs {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      backdrop-filter: blur(8px);
+      overflow-x: auto;
+      scrollbar-width: none
+    }
+
+    .tabs::-webkit-scrollbar {
+      display: none
+    }
+
+    .tab {
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-family: 'Syne', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--text3);
+      transition: all var(--transition);
+      white-space: nowrap
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      box-shadow: 0 2px 12px var(--gold-glow)
+    }
+
+    .tab:hover:not(.active) {
+      color: var(--text);
+      background: rgba(255, 255, 255, .03)
+    }
+
+    .tab-pane {
+      display: none
+    }
+
+    .tab-pane.active {
+      display: block;
+      animation: fadeUp .35s ease
+    }
+
+    /* METRIC CARDS */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px
+    }
+
+    .metric-card {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+      transition: all var(--transition);
+      backdrop-filter: blur(8px)
+    }
+
+    .metric-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow)
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px
+    }
+
+    .metric-card.gold::before {
+      background: linear-gradient(90deg, var(--gold), var(--gold2))
+    }
+
+    .metric-card.teal::before {
+      background: linear-gradient(90deg, var(--teal), #00f0d0)
+    }
+
+    .metric-card.red::before {
+      background: linear-gradient(90deg, var(--red), #ff7090)
+    }
+
+    .metric-card.blue::before {
+      background: linear-gradient(90deg, var(--blue), #70b8ff)
+    }
+
+    .metric-card.purple::before {
+      background: linear-gradient(90deg, var(--purple), #c084fc)
+    }
+
+    .metric-label {
+      font-size: 10px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px
+    }
+
+    .metric-value {
+      font-family: 'Space Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px
+    }
+
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text3)
+    }
+
+    .metric-change {
+      font-size: 11px;
+      font-family: 'Space Mono', monospace;
+      margin-top: 4px
+    }
+
+    .pos {
+      color: var(--teal)
+    }
+
+    .neg {
+      color: var(--red)
+    }
+
+    /* TABLE */
+    .table-wrap {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      backdrop-filter: blur(8px)
+    }
+
+    .table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border)
+    }
+
+    .table-header h2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      font-weight: 700
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse
+    }
+
+    th {
+      padding: 10px 16px;
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text3);
+      border-bottom: 1px solid var(--border);
+      font-family: 'Space Mono', monospace
+    }
+
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(30, 50, 80, .25);
+      font-size: 13px;
+      transition: background var(--transition)
+    }
+
+    tr:last-child td {
+      border: none
+    }
+
+    tr:hover td {
+      background: rgba(212, 168, 67, .03)
+    }
+
+    .sym-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px
+    }
+
+    .sym-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      color: #000;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .2)
+    }
+
+    .sym-name {
+      font-size: 11px;
+      color: var(--text3)
+    }
+
+    .sym-ticker {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      font-weight: 700
+    }
+
+    td.mono {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-family: 'Space Mono', monospace;
+      font-weight: 700
+    }
+
+    .badge.pos {
+      background: rgba(0, 212, 177, .12);
+      color: var(--teal)
+    }
+
+    .badge.neg {
+      background: rgba(255, 77, 109, .12);
+      color: var(--red)
+    }
+
+    .add-btn {
+      background: none;
+      border: 1px solid var(--border2);
+      color: var(--text2);
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      transition: all var(--transition)
+    }
+
+    .add-btn:hover {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: var(--gold-glow)
+    }
+
+    /* CHART PANELS */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px
+    }
+
+    .chart-panel {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      position: relative;
+      backdrop-filter: blur(8px);
+      transition: all var(--transition)
+    }
+
+    .chart-panel:hover {
+      border-color: var(--border2)
+    }
+
+    .chart-panel.full {
+      grid-column: 1/-1
+    }
+
+    .chart-panel h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px
+    }
+
+    .chart-panel p {
+      font-size: 11px;
+      color: var(--text3);
+      margin-bottom: 14px
+    }
+
+    .chart-panel canvas {
+      max-height: 260px
+    }
+
+    .chart-badge {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      padding: 3px 9px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      letter-spacing: .3px
+    }
+
+    .chart-badge.model {
+      background: rgba(168, 85, 247, .12);
+      color: var(--purple);
+      border: 1px solid rgba(168, 85, 247, .25)
+    }
+
+    .chart-badge.sim {
+      background: rgba(77, 159, 255, .12);
+      color: var(--blue);
+      border: 1px solid rgba(77, 159, 255, .25)
+    }
+
+    .chart-badge.ai {
+      background: var(--gold-glow);
+      color: var(--gold);
+      border: 1px solid rgba(212, 168, 67, .25)
+    }
+
+    .chart-badge.live {
+      background: var(--teal-glow);
+      color: var(--teal);
+      border: 1px solid rgba(0, 212, 177, .25)
+    }
+
+    /* NEWS */
+    .news-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .news-card {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      transition: all var(--transition);
+      cursor: pointer;
+      backdrop-filter: blur(8px)
+    }
+
+    .news-card:hover {
+      border-color: var(--border2);
+      transform: translateX(4px)
+    }
+
+    .news-card a {
+      color: inherit;
+      text-decoration: none
+    }
+
+    .news-thumb {
+      width: 56px;
+      height: 56px;
+      border-radius: 8px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--border)
+    }
+
+    .news-skeleton {
+      height: 80px;
+      border-radius: var(--radius);
+      background-image: linear-gradient(90deg, var(--bg2) 0%, var(--bg3) 50%, var(--bg2) 100%);
+      background-size: 800px 80px;
+      background-repeat: no-repeat;
+      animation: shimmer 1.5s infinite linear
+    }
+
+    @media(max-width:768px) {
+      #tab-news [style*="grid-template-columns:1fr 1fr"] {
+        grid-template-columns: 1fr
+      }
+    }
+
+    .news-sentiment {
+      width: 4px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      align-self: stretch;
+      min-height: 40px
+    }
+
+    .news-sentiment.pos {
+      background: linear-gradient(180deg, var(--teal), rgba(0, 212, 177, .3))
+    }
+
+    .news-sentiment.neg {
+      background: linear-gradient(180deg, var(--red), rgba(255, 77, 109, .3))
+    }
+
+    .news-sentiment.neu {
+      background: linear-gradient(180deg, var(--text3), rgba(78, 106, 138, .3))
+    }
+
+    .news-body {
+      flex: 1
+    }
+
+    .news-title {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      line-height: 1.4
+    }
+
+    .news-meta {
+      font-size: 11px;
+      color: var(--text3);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center
+    }
+
+    .news-tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-family: 'Space Mono', monospace;
+      text-transform: uppercase;
+      font-weight: 700
+    }
+
+    .news-tag.pos {
+      background: rgba(0, 212, 177, .12);
+      color: var(--teal)
+    }
+
+    .news-tag.neg {
+      background: rgba(255, 77, 109, .12);
+      color: var(--red)
+    }
+
+    .news-tag.neu {
+      background: rgba(78, 106, 138, .12);
+      color: var(--text3)
+    }
+
+    .news-sym {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      background: var(--gold-glow);
+      color: var(--gold);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 700
+    }
+
+    /* COMPARISON */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px
+    }
+
+    .compare-card {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      backdrop-filter: blur(8px)
+    }
+
+    .compare-card h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--gold)
+    }
+
+    .compare-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px
+    }
+
+    .compare-stat:last-child {
+      border: none
+    }
+
+    .compare-stat span:first-child {
+      color: var(--text2)
+    }
+
+    .compare-stat span:last-child {
+      font-family: 'Space Mono', monospace;
+      font-weight: 700
+    }
+
+    /* RATIOS */
+    .ratios-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px
+    }
+
+    .ratio-card {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      backdrop-filter: blur(8px);
+      transition: all var(--transition)
+    }
+
+    .ratio-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-2px)
+    }
+
+    .ratio-name {
+      font-size: 11px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      margin-bottom: 6px
+    }
+
+    .ratio-val {
+      font-family: 'Space Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px
+    }
+
+    .ratio-bar-wrap {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden
+    }
+
+    .ratio-bar {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 1.2s ease
+    }
+
+    /* PROJECTION */
+    .projection-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 14px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 14px;
+      backdrop-filter: blur(8px)
+    }
+
+    .proj-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px
+    }
+
+    .proj-row span:first-child {
+      color: var(--text2)
+    }
+
+    .proj-row span:last-child {
+      font-family: 'Space Mono', monospace;
+      color: var(--gold);
+      font-weight: 700
+    }
+
+    /* MODAL */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000
+    }
+
+    .modal-overlay.show {
+      display: flex
+    }
+
+    .modal {
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 24px;
+      width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      animation: slideUp .25s ease;
+      box-shadow: var(--shadow-lg)
+    }
+
+    .modal h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px
+    }
+
+    .modal-btns {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px
+    }
+
+    .btn-primary {
+      flex: 1;
+      padding: 11px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all var(--transition);
+      font-size: 13px
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 4px 20px var(--gold-glow);
+      transform: translateY(-1px)
+    }
+
+    .btn-secondary {
+      flex: 1;
+      padding: 11px;
+      background: none;
+      color: var(--text2);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all var(--transition);
+      font-size: 13px
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text2);
+      color: var(--text)
+    }
+
+    .row {
+      display: flex;
+      gap: 10px
+    }
+
+    .row>* {
+      flex: 1
+    }
+
+    /* FINANCIAL TABS */
+    .fin-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px
+    }
+
+    .fin-tab {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--text3);
+      border: 1px solid var(--border);
+      transition: all var(--transition)
+    }
+
+    .fin-tab.active {
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      border-color: transparent
+    }
+
+    /* NOTIFICATION */
+    .notif {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 13px;
+      z-index: 2000;
+      animation: slideIn .3s ease;
+      min-width: 220px;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-lg)
+    }
+
+    .notif.success {
+      border-left: 3px solid var(--teal)
+    }
+
+    .notif.error {
+      border-left: 3px solid var(--red)
+    }
+
+    .section-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text3);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--border), transparent)
+    }
+
+    .row-spread {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px
+    }
+
+    .progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-bottom: 4px
+    }
+
+    .progress-bar {
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 1s ease
+    }
+
+    /* CONFIRM DIALOG */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+      backdrop-filter: blur(2px)
+    }
+
+    .confirm-overlay.show {
+      display: flex
+    }
+
+    .confirm-box {
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      padding: 24px;
+      width: 340px;
+      text-align: center;
+      animation: slideUp .2s ease;
+      box-shadow: var(--shadow-lg)
+    }
+
+    .confirm-box h4 {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      margin-bottom: 8px
+    }
+
+    .confirm-box p {
+      font-size: 13px;
+      color: var(--text2);
+      margin-bottom: 16px
+    }
+
+    /* RESPONSIVE */
+    @media(max-width:1024px) {
+      .sector-chips {
+        display: none
+      }
+
+      .charts-grid {
+        grid-template-columns: 1fr
+      }
+
+      .compare-grid {
+        grid-template-columns: 1fr
+      }
+
+      main {
+        padding: 16px
+      }
+    }
+
+    @media(max-width:768px) {
+      .hamburger {
+        display: block
+      }
+
+      aside {
+        transform: translateX(-100%)
+      }
+
+      aside.open {
+        transform: translateX(0);
+        box-shadow: var(--shadow-lg)
+      }
+
+      .sidebar-overlay.show {
+        display: block
+      }
+
+      main {
+        margin-left: 0;
+        padding: 14px
+      }
+
+      .ticker {
+        display: none
+      }
+
+      /* When ticker is hidden, header moves to top:0 and layout adjusts */
+      header {
+        top: 0
+      }
+
+      .app-body {
+        margin-top: var(--header-h);
+        min-height: calc(100vh - var(--header-h))
+      }
+
+      aside {
+        top: var(--header-h)
+      }
+
+      .header-right .live-badge {
+        display: none
+      }
+
+      .metrics-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 8px
+      }
+
+      .metric-value {
+        font-size: 18px
+      }
+
+      .modal {
+        width: calc(100vw - 32px);
+        margin: 16px
+      }
+
+      .ratios-grid {
+        grid-template-columns: 1fr 1fr
+      }
+
+      .search-wrap {
+        max-width: 200px
+      }
+
+      th,
+      td {
+        padding: 8px 10px;
+        font-size: 11px
+      }
+
+      .table-wrap {
+        overflow-x: auto
+      }
+    }
+
+    @media(max-width:480px) {
+      header {
+        padding: 0 12px;
+        gap: 8px
+      }
+
+      .logo {
+        font-size: 15px
+      }
+
+      .search-wrap {
+        max-width: 150px
+      }
+
+      .metrics-grid {
+        grid-template-columns: 1fr 1fr
+      }
+
+      .ratios-grid {
+        grid-template-columns: 1fr
+      }
+
+      .tabs {
+        gap: 0
+      }
+
+      .tab {
+        padding: 7px 10px;
+        font-size: 11px
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- TICKER TAPE -->
+  <div class="ticker" role="marquee" aria-label="Live stock prices">
+    <div class="ticker-inner" id="tickerInner"></div>
+  </div>
+
+  <!-- HEADER -->
+  <header role="banner">
+    <button class="hamburger" id="hamburgerBtn" aria-label="Toggle sidebar menu" onclick="toggleSidebar()">☰</button>
+    <div class="logo">
+      <div class="logo-dot" aria-hidden="true"></div>
+      QuantEdge
+    </div>
+    <div class="search-wrap">
+      <span class="s-icon" aria-hidden="true">🔍</span>
+      <input type="text" id="stockSearch" placeholder="Search stocks — AAPL, TSLA, MSFT..." autocomplete="off"
+        aria-label="Search stocks" role="combobox">
+      <div class="search-dropdown" id="searchDropdown" role="listbox"></div>
+    </div>
+    <div class="sector-chips" id="sectorChips" role="group" aria-label="Sector filters"></div>
+    <div class="header-right">
+      <div class="live-badge" aria-label="Live data">
+        <div class="live-dot" aria-hidden="true"></div> LIVE
+      </div>
+      <button class="btn-calc" onclick="calculatePortfolio()" aria-label="Calculate portfolio">⚡ Calculate</button>
+    </div>
+  </header>
+
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <!-- CONFIRM DIALOG -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+      <h4 id="confirmTitle">Confirm</h4>
+      <p id="confirmMsg">Are you sure?</p>
+      <div class="modal-btns">
+        <button class="btn-primary" id="confirmYes" style="background:linear-gradient(135deg,var(--red),#ff7090)"
+          onclick="confirmAction()">Remove</button>
+        <button class="btn-secondary" onclick="closeConfirm()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="addModal">
+    <div class="modal">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <h3 style="margin:0">Add — <span id="modalSymbol" style="color:var(--gold)"></span></h3>
+        <button onclick="closeModal()"
+          style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;transition:color .2s"
+          aria-label="Close modal" onmouseover="this.style.color='var(--text)'"
+          onmouseout="this.style.color='var(--text3)'">✕</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span
+          style="width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulse 1s infinite"></span>
+        Live data from Yahoo Finance
+      </div>
+      <div id="modalYFData"></div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:10px">
+        <div class="row">
+          <div>
+            <label>Number of Shares</label>
+            <input type="number" id="modalShares" placeholder="e.g. 10" min="0.001" step="any" style="margin-bottom:0"
+              aria-label="Number of shares">
+          </div>
+          <div>
+            <label>Price per Share ($)</label>
+            <input type="number" id="modalCost" placeholder="e.g. 150.00" min="0.01" step="0.01" style="margin-bottom:0"
+              oninput="updateModalTotal()" aria-label="Price per share">
+          </div>
+        </div>
+        <div
+          style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+          <span style="font-size:11px;color:var(--text3)">Total Cost</span>
+          <span id="modalTotalCost"
+            style="font-family:Space Mono,monospace;font-size:14px;color:var(--gold);font-weight:700">—</span>
+        </div>
+      </div>
+      <div class="modal-btns" style="margin-top:12px">
+        <button class="btn-primary" onclick="confirmAddStock()">➕ Add to Portfolio</button>
+        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-body">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" role="complementary" aria-label="Portfolio configuration">
+      <div class="s-section">
+        <h3>💰 Investment Capital</h3>
+        <label for="initAmount">Initial Amount ($)</label>
+        <input type="number" id="initAmount" value="10000" min="0">
+        <label>Recurring Contribution ($)</label>
+        <div class="freq-toggle" role="group" aria-label="Contribution frequency">
+          <div class="freq-btn active" id="freqMonthly" onclick="setFreq('monthly')" role="button" tabindex="0">Monthly
+          </div>
+          <div class="freq-btn" id="freqAnnual" onclick="setFreq('annually')" role="button" tabindex="0">Annually</div>
+        </div>
+        <input type="number" id="recurAmount" value="500" min="0" placeholder="Recurring amount"
+          aria-label="Recurring contribution amount">
+
+        <!-- Sync button -->
+        <button id="syncValueBtn" onclick="syncPortfolioValue()" aria-label="Sync portfolio value from live prices"
+          style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(0,212,177,.3);background:rgba(0,212,177,.08);color:var(--teal);font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition);display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:.3px;margin-top:2px">
+          <span id="syncBtnIcon">📊</span>
+          <span id="syncBtnLabel">Sync Portfolio Value</span>
+        </button>
+        <div id="syncResult"
+          style="margin-top:8px;display:none;padding:8px 10px;border-radius:6px;background:rgba(0,212,177,.06);border:1px solid rgba(0,212,177,.2);font-size:11px;font-family:'Space Mono',monospace;color:var(--teal)">
+        </div>
+      </div>
+
+      <div class="s-section">
+        <h3>⚡ Risk Profile</h3>
+        <div class="risk-display">
+          <div>
+            <div class="risk-val" id="riskVal">4</div>
+            <div class="risk-label">Risk Level</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--text2)" id="riskLabel">Moderate</div>
+            <div style="font-size:10px;color:var(--text3)">Expected return</div>
+            <div style="font-size:13px;font-family:'Space Mono',monospace;color:var(--teal)" id="riskReturn">8.5%</div>
+          </div>
+        </div>
+        <input type="range" id="riskSlider" min="1" max="10" value="4" oninput="syncRisk(this.value)"
+          aria-label="Risk level slider">
+        <div class="risk-row"><span>🔒 Bond (1)</span><span>🚀 Max (10)</span></div>
+        <label for="riskInput">Manual Risk Input</label>
+        <input type="number" id="riskInput" value="4" min="1" max="10" oninput="syncRiskInput(this.value)">
+      </div>
+
+      <div class="s-section">
+        <h3>📅 Time Horizon</h3>
+        <div class="horizon-grid" role="group" aria-label="Time horizon selection">
+          <div class="h-btn" onclick="setHorizon(0.5,'6M',this)" tabindex="0">6M</div>
+          <div class="h-btn" onclick="setHorizon(1,'1Y',this)" tabindex="0">1Y</div>
+          <div class="h-btn active" onclick="setHorizon(2,'2Y',this)" tabindex="0">2Y</div>
+          <div class="h-btn" onclick="setHorizon(3,'3Y',this)" tabindex="0">3Y</div>
+          <div class="h-btn" onclick="setHorizon(5,'5Y',this)" tabindex="0">5Y</div>
+          <div class="h-btn" onclick="setHorizon(10,'10Y',this)" tabindex="0">10Y</div>
+        </div>
+      </div>
+
+      <div class="s-section">
+        <h3>📊 Desired Ratios</h3>
+        <div class="check-grid">
+          <label class="check-item"><input type="checkbox" checked value="pe" onchange="onRatioChange()"><span>P/E
+              Ratio</span></label>
+          <label class="check-item"><input type="checkbox" checked value="pb" onchange="onRatioChange()"><span>P/B
+              Ratio</span></label>
+          <label class="check-item"><input type="checkbox" value="ev"
+              onchange="onRatioChange()"><span>EV/EBITDA</span></label>
+          <label class="check-item"><input type="checkbox" checked value="de"
+              onchange="onRatioChange()"><span>Debt/Equity</span></label>
+          <label class="check-item"><input type="checkbox" checked value="roe"
+              onchange="onRatioChange()"><span>ROE</span></label>
+          <label class="check-item"><input type="checkbox" value="roa"
+              onchange="onRatioChange()"><span>ROA</span></label>
+          <label class="check-item"><input type="checkbox" value="cr" onchange="onRatioChange()"><span>Current
+              Ratio</span></label>
+          <label class="check-item"><input type="checkbox" value="fcf" onchange="onRatioChange()"><span>FCF
+              Yield</span></label>
+          <label class="check-item"><input type="checkbox" value="div" onchange="onRatioChange()"><span>Div
+              Yield</span></label>
+          <label class="check-item"><input type="checkbox" value="ps" onchange="onRatioChange()"><span>P/S
+              Ratio</span></label>
+          <label class="check-item"><input type="checkbox" value="beta"
+              onchange="onRatioChange()"><span>Beta</span></label>
+          <label class="check-item"><input type="checkbox" value="margin" onchange="onRatioChange()"><span>Net
+              Margin</span></label>
+        </div>
+        <button
+          onclick="switchTab('financials');setTimeout(()=>document.getElementById('ratioSection')?.scrollIntoView({behavior:'smooth'}),100)"
+          style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(212,168,67,.3);background:rgba(212,168,67,.07);color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;cursor:pointer;transition:all var(--transition);display:flex;align-items:center;justify-content:center;gap:5px">
+          📈 View Ratios in Financials
+        </button>
+      </div>
+
+      <div class="s-section">
+        <h3>🏭 Sectors</h3>
+        <div class="sector-grid" id="sidebarSectors"></div>
+        <button onclick="buildSectorPortfolio()" aria-label="Build portfolio from selected sectors"
+          style="width:100%;margin-top:10px;padding:9px;border-radius:8px;border:1px solid rgba(168,85,247,.3);background:rgba(168,85,247,.08);color:var(--purple);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;cursor:pointer;transition:all var(--transition);display:flex;align-items:center;justify-content:center;gap:6px;letter-spacing:.3px">
+          🤖 Build Sector Portfolio
+        </button>
+      </div>
+
+      <!-- SECTOR BUILDER MODAL -->
+      <div id="sectorBuilderOverlay"
+        style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+        <div
+          style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:24px;max-width:520px;width:calc(100%-32px);max-height:80vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:slideUp .3s ease">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h2 style="font-family:'Syne',sans-serif;font-size:16px;color:var(--purple)">🤖 Sector Portfolio Builder
+            </h2>
+            <button onclick="closeSectorBuilder()"
+              style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+          </div>
+          <p style="font-size:12px;color:var(--text3);margin-bottom:14px">Configure and generate an optimized portfolio
+            based on your selected sectors.</p>
+
+          <label style="margin-bottom:4px">Selected Sectors</label>
+          <div id="builderSectorPills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
+          <label for="builderBudget">Total Budget ($)</label>
+          <input type="number" id="builderBudget" value="10000" min="100" step="100">
+
+          <label for="builderWeighting">Weighting Strategy</label>
+          <select id="builderWeighting" style="margin-bottom:14px">
+            <option value="equal">Equal Weight — same % per stock</option>
+            <option value="market_cap">Market Cap Weight — bigger stocks get more</option>
+            <option value="momentum">Momentum — favor recent winners</option>
+          </select>
+
+          <label for="builderMaxPerSector">Max Stocks per Sector</label>
+          <input type="number" id="builderMaxPerSector" value="2" min="1" max="5" style="margin-bottom:14px">
+
+          <div id="builderPreview"
+            style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;display:none">
+            <div
+              style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace;font-weight:700;margin-bottom:8px">
+              PREVIEW</div>
+            <div id="builderPreviewList" style="display:flex;flex-direction:column;gap:5px"></div>
+          </div>
+
+          <div style="display:flex;gap:10px">
+            <button onclick="previewSectorPortfolio()"
+              style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border2);background:var(--bg);color:var(--text2);font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition)">
+              👁 Preview
+            </button>
+            <button onclick="applySectorPortfolio()"
+              style="flex:2;padding:10px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--purple),#7c3aed);color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition)">
+              ✓ Apply to Portfolio
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="s-section">
+        <h3>📤 Export</h3>
+        <div class="export-btns">
+          <button class="btn-export btn-pdf" onclick="exportPDF()" aria-label="Export as PDF">📄 PDF</button>
+          <button class="btn-export btn-xl" onclick="exportExcel()" aria-label="Export as Excel">📊 Excel</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main role="main">
+
+      <div class="tabs" role="tablist">
+        <div class="tab active" onclick="switchTab('holdings')" role="tab" tabindex="0">Portfolio</div>
+        <div class="tab" onclick="switchTab('overview')" role="tab" tabindex="0">Overview</div>
+        <div class="tab" onclick="switchTab('analysis')" role="tab" tabindex="0">Analysis</div>
+        <div class="tab" onclick="switchTab('financials')" role="tab" tabindex="0">Financials</div>
+        <div class="tab" onclick="switchTab('comparison')" role="tab" tabindex="0">Comparison</div>
+        <div class="tab" onclick="switchTab('news')" role="tab" tabindex="0">News</div>
+      </div>
+
+      <!-- HOLDINGS TAB -->
+      <div class="tab-pane active" id="tab-holdings" role="tabpanel">
+        <div class="metrics-grid" id="topMetrics"></div>
+        <div style="height:16px"></div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <h2>Portfolio Holdings</h2>
+            <button class="add-btn" onclick="openAddFromSearch()" aria-label="Add stock">+ Add Stock</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Shares</th>
+                  <th>Avg Cost</th>
+                  <th>Current</th>
+                  <th>Market Value</th>
+                  <th>Gain/Loss</th>
+                  <th>Weight</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="portfolioBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div style="height:16px"></div>
+        <div class="chart-panel">
+          <h3>Portfolio Value Projection</h3>
+          <p>Estimated growth over selected time horizon with recurring contributions</p>
+          <div class="projection-bar" id="projectionSummary"></div>
+          <canvas id="projectionChart"></canvas>
+        </div>
+      </div>
+
+      <!-- OVERVIEW TAB -->
+      <div class="tab-pane" id="tab-overview" role="tabpanel">
+        <div class="section-label">Allocation & Performance</div>
+        <div class="charts-grid">
+          <div class="chart-panel">
+            <h3>Sector Allocation</h3>
+            <p>Portfolio distribution by sector</p><span class="chart-badge live">Live</span><canvas
+              id="allocationChart"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3>Risk / Return Profile</h3>
+            <p>Sharpe Ratio & position efficiency</p><span class="chart-badge model">Model</span><canvas
+              id="riskReturnChart"></canvas>
+          </div>
+          <div class="chart-panel full">
+            <h3>Historical Performance vs Benchmarks</h3>
+            <p>Portfolio vs S&P 500, NASDAQ, Bond Index</p><span class="chart-badge live">Data</span><canvas
+              id="historicalChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ANALYSIS TAB -->
+      <div class="tab-pane" id="tab-analysis" role="tabpanel">
+        <div class="section-label">Quantitative Models</div>
+        <div class="charts-grid">
+          <div class="chart-panel">
+            <h3>Monte Carlo Simulation</h3>
+            <p>1,000 portfolio paths — percentile bands</p><span class="chart-badge sim">10K sims</span><canvas
+              id="monteCarloChart"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3>Black-Scholes Pricing</h3>
+            <p>Call & Put option values vs. underlying price</p><span class="chart-badge model">B-S Model</span><canvas
+              id="blackScholesChart"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3>ARIMA Forecast</h3>
+            <p>12-period price forecast with confidence intervals</p><span class="chart-badge ai">AI
+              Forecast</span><canvas id="arimaChart"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3>Volatility Surface</h3>
+            <p>Implied volatility vs strike & expiry</p><span class="chart-badge model">Greeks</span><canvas
+              id="volatilityChart"></canvas>
+          </div>
+        </div>
+        <div class="section-label" style="margin-top:8px">Key Ratios</div>
+        <div class="ratios-grid" id="ratiosGrid"></div>
+      </div>
+
+      <!-- FINANCIALS TAB -->
+      <div class="tab-pane" id="tab-financials" role="tabpanel">
+
+        <!-- ① RATIO SECTION — per-stock -->
+        <div id="ratioSection">
+          <div
+            style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+            <div class="section-label" style="margin:0">📊 Portfolio Ratios</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace" id="ratioTimestamp">
+              </div>
+              <button onclick="fetchAndRenderRatios()"
+                style="padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:11px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;transition:all var(--transition)">↺
+                Refresh</button>
+            </div>
+          </div>
+
+          <!-- Active ratio chips -->
+          <div id="ratioFilterChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
+          <!-- Per-stock ratio cards grid -->
+          <div id="ratioCardsGrid"
+            style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:24px">
+            <!-- Populated by JS -->
+          </div>
+
+          <!-- Comparison table -->
+          <div id="ratioTableWrap" style="margin-bottom:24px;display:none">
+            <h3 style="font-family:'Syne',sans-serif;font-size:14px;color:var(--text);margin-bottom:10px">📋
+              Side-by-Side Comparison</h3>
+            <div class="table-wrap">
+              <table id="ratioTable" style="width:100%">
+                <thead id="ratioTableHead"></thead>
+                <tbody id="ratioTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">Financial Statements</div>
+        <div class="fin-tabs" role="tablist">
+          <div class="fin-tab active" onclick="setFinTab('income',this)" role="tab">Income Statement</div>
+          <div class="fin-tab" onclick="setFinTab('balance',this)" role="tab">Balance Sheet</div>
+          <div class="fin-tab" onclick="setFinTab('cashflow',this)" role="tab">Cash Flow</div>
+        </div>
+        <div class="chart-panel" style="margin-bottom:16px"><canvas id="financialsChart"
+            style="max-height:300px"></canvas></div>
+        <div class="charts-grid">
+          <div class="chart-panel">
+            <h3>Revenue vs Net Income</h3>
+            <p>5-year trend analysis</p><canvas id="revIncomeChart"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3>Margins Evolution</h3>
+            <p>Gross / Operating / Net margin over time</p><canvas id="marginsChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- COMPARISON TAB -->
+      <div class="tab-pane" id="tab-comparison" role="tabpanel">
+        <div class="section-label">Portfolio Comparison</div>
+
+        <!-- Head-to-head chart -->
+        <div class="chart-panel" style="margin-bottom:16px">
+          <div
+            style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+            <h3 style="margin:0">📈 Head-to-Head Performance</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="compHorizon" onchange="renderDynamicComparisonChart()"
+                style="margin:0;padding:6px 10px;font-size:11px;width:auto">
+                <option value="12">1 Year</option>
+                <option value="24" selected>2 Years</option>
+                <option value="36">3 Years</option>
+                <option value="60">5 Years</option>
+              </select>
+              <button onclick="renderDynamicComparisonChart()"
+                style="padding:6px 14px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:11px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700">↺
+                Refresh</button>
+            </div>
+          </div>
+          <div id="compLegend" style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap"></div>
+          <canvas id="comparisonChart"></canvas>
+        </div>
+
+        <!-- Two portfolio cards -->
+        <div class="compare-grid">
+          <!-- Portfolio A -->
+          <div class="compare-card" id="compCardA">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <div style="width:10px;height:10px;border-radius:50%;background:#d4a843;flex-shrink:0"></div>
+              <input id="compNameA" value="Portfolio A" aria-label="Portfolio A name"
+                style="background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--gold);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1;outline:none;padding:2px 4px;transition:border-color .2s"
+                onfocus="this.style.borderColor='var(--gold)'"
+                onblur="this.style.borderColor='var(--border2)';renderDynamicComparisonChart()"
+                onkeydown="if(event.key==='Enter')this.blur()">
+              <span style="font-size:10px;color:var(--text3)" title="Click name to edit">✏</span>
+            </div>
+
+            <!-- Search A -->
+            <div class="search-wrap" style="max-width:100%;margin-bottom:10px">
+              <span class="s-icon">🔍</span>
+              <input type="text" id="compSearchA" placeholder="Add stock (e.g. TSLA, Amazon…)" autocomplete="off"
+                aria-label="Search stock for Portfolio A" style="font-size:12px;padding-left:30px">
+              <div class="search-dropdown" id="compDropA" role="listbox"></div>
+            </div>
+
+            <!-- Holdings A -->
+            <div id="compHoldingsA"
+              style="display:flex;flex-direction:column;gap:4px;min-height:40px;margin-bottom:10px"></div>
+
+            <!-- Stats A -->
+            <div id="compStatsA"
+              style="display:flex;flex-direction:column;gap:4px;padding-top:8px;border-top:1px solid var(--border)">
+            </div>
+          </div>
+
+          <!-- Portfolio B -->
+          <div class="compare-card" id="compCardB">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <div style="width:10px;height:10px;border-radius:50%;background:#4d9fff;flex-shrink:0"></div>
+              <input id="compNameB" value="Portfolio B" aria-label="Portfolio B name"
+                style="background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--blue);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1;outline:none;padding:2px 4px;transition:border-color .2s"
+                onfocus="this.style.borderColor='var(--blue)'"
+                onblur="this.style.borderColor='var(--border2)';renderDynamicComparisonChart()"
+                onkeydown="if(event.key==='Enter')this.blur()">
+              <span style="font-size:10px;color:var(--text3)" title="Click name to edit">✏</span>
+            </div>
+
+            <!-- Search B -->
+            <div class="search-wrap" style="max-width:100%;margin-bottom:10px">
+              <span class="s-icon">🔍</span>
+              <input type="text" id="compSearchB" placeholder="Add stock (e.g. JPM, Gold…)" autocomplete="off"
+                aria-label="Search stock for Portfolio B" style="font-size:12px;padding-left:30px">
+              <div class="search-dropdown" id="compDropB" role="listbox"></div>
+            </div>
+
+            <!-- Holdings B -->
+            <div id="compHoldingsB"
+              style="display:flex;flex-direction:column;gap:4px;min-height:40px;margin-bottom:10px"></div>
+
+            <!-- Stats B -->
+            <div id="compStatsB"
+              style="display:flex;flex-direction:column;gap:4px;padding-top:8px;border-top:1px solid var(--border)">
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- NEWS TAB -->
+      <div class="tab-pane" id="tab-news" role="tabpanel">
+
+        <!-- Header row -->
+        <div
+          style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div class="section-label" style="margin:0">📰 Live News Feed</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div
+              style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--teal);font-family:'Space Mono',monospace">
+              <div class="live-dot"></div><span id="newsLastUpdate">Refreshing…</span>
+            </div>
+            <button onclick="loadAllNews()"
+              style="padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:11px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;transition:all var(--transition)">↺
+              Refresh</button>
+          </div>
+        </div>
+
+        <!-- Two columns: Market News + Portfolio News -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+          <!-- MARKET NEWS -->
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--text)">🌍 Market News
+              </div>
+              <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace">LIVE · Yahoo Finance
+              </div>
+            </div>
+            <div id="marketNewsFeed" style="display:flex;flex-direction:column;gap:8px">
+              <!-- Skeleton loaders -->
+              <div class="news-skeleton"></div>
+              <div class="news-skeleton"></div>
+              <div class="news-skeleton"></div>
+            </div>
+          </div>
+
+          <!-- PORTFOLIO NEWS -->
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--gold)">💼 My
+                Portfolio</div>
+              <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace">PERSONALIZED</div>
+            </div>
+            <div id="portfolioNewsFeed" style="display:flex;flex-direction:column;gap:8px">
+              <div class="news-skeleton"></div>
+              <div class="news-skeleton"></div>
+              <div class="news-skeleton"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="app2.js"></script>
+  <script src="app3.js"></script>
+  <script src="app4.js"></script>
+  <script src="app5.js"></script>
+  <script src="app6.js"></script>
+</body>
+
+</html>
