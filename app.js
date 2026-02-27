@@ -47,6 +47,7 @@ let pendingConfirm = null;
 // INIT
 // =============================================
 document.addEventListener('DOMContentLoaded', () => {
+    clearOldCache();
     buildSectorChips(); buildSidebarSectors(); buildTickerTape();
     renderPortfolioTable(); renderTopMetrics(); renderCharts();
     renderNews(); renderRatios(); renderFinancials('income'); renderComparison(); updateStockComparison();
@@ -202,9 +203,9 @@ function escapeHtml(str) {
 // =============================================
 // LOCALSTORAGE CACHE  (survives page reloads)
 // =============================================
-const LS_PREFIX = 'qe_';
-const TTL_PRICE = 5 * 60 * 1000;   // 5 min  — live prices
-const TTL_SUMMARY = 60 * 60 * 1000;   // 1 hour — fundamentals / ratios
+const LS_PREFIX = 'qe3_';           // bump version to clear all old stale data
+const TTL_PRICE = 2 * 60 * 1000;   // 2 min — live prices (fresher)
+const TTL_SUMMARY = 60 * 60 * 1000;  // 1 hour — fundamentals / ratios
 
 function lsSet(key, data) {
     try { localStorage.setItem(LS_PREFIX + key, JSON.stringify({ d: data, t: Date.now() })); } catch (_) { }
@@ -217,6 +218,15 @@ function lsGet(key, ttl) {
         if (Date.now() - t > ttl) return null;
         return d;
     } catch (_) { return null; }
+}
+// Remove any keys from old cache versions on startup
+function clearOldCache() {
+    try {
+        const oldPrefixes = ['qe_', 'qe2_'];
+        Object.keys(localStorage)
+            .filter(k => oldPrefixes.some(p => k.startsWith(p)))
+            .forEach(k => localStorage.removeItem(k));
+    } catch (_) { }
 }
 
 // =============================================
