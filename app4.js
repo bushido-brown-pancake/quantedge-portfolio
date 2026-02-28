@@ -63,17 +63,31 @@ async function fetchCompPrices(side) {
     const holdings = compState[side].holdings;
     for (const h of holdings) {
         try {
-            const lp = livePrices[h.sym];
-            if (lp) {
-                updateCompPriceEl(side, h.sym, lp);
+            // First try active livePrices cache
+            if (livePrices[h.sym]) {
+                updateCompPriceEl(side, h.sym, livePrices[h.sym]);
                 continue;
             }
+
+            // Then try fetching it live
             const data = await fetchLivePrice(h.sym);
             if (data) {
                 data._ts = Date.now();
                 livePrices[h.sym] = data;
                 h.name = data.name || h.name;
                 updateCompPriceEl(side, h.sym, data);
+                continue;
+            }
+
+            // Fallback: Use STOCKS_DB if API fails or market is closed
+            const dbData = STOCKS_DB.find(s => s.sym === h.sym);
+            if (dbData) {
+                const fbData = { price: dbData.price, change: dbData.change, name: dbData.name };
+                livePrices[h.sym] = { ...fbData, _ts: Date.now() }; // Cache the fallback
+                updateCompPriceEl(side, h.sym, fbData);
+            } else {
+                // Absolute fallback (unknown stock + API failed)
+                updateCompPriceEl(side, h.sym, { price: 0, change: 0, name: h.sym });
             }
         } catch (_) { }
     }

@@ -2044,6 +2044,7 @@
         <div class="tab" onclick="switchTab('financials')" role="tab" tabindex="0">Financials</div>
         <div class="tab" onclick="switchTab('comparison')" role="tab" tabindex="0">Comparison</div>
         <div class="tab" onclick="switchTab('news')" role="tab" tabindex="0">News</div>
+        <div class="tab" onclick="switchTab('simulation')" role="tab" tabindex="0">📊 Simulation</div>
       </div>
 
       <!-- HOLDINGS TAB -->
@@ -2338,6 +2339,150 @@
         </div>
       </div>
 
+      <!-- SIMULATION S&P BENCHMARK TAB -->
+      <div class="tab-pane" id="tab-simulation" role="tabpanel">
+
+        <!-- Header -->
+        <div
+          style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+          <div>
+            <div class="section-label" style="margin:0;font-size:16px">📊 Simulation S&P Benchmark</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Compare your projected portfolio growth vs the
+              S&P 500 index</div>
+          </div>
+          <button onclick="runSimulation()"
+            style="padding:8px 20px;border-radius:8px;border:1px solid rgba(212,168,67,.4);background:linear-gradient(135deg,rgba(212,168,67,.15),rgba(212,168,67,.05));color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition);letter-spacing:.5px"
+            onmouseover="this.style.background='linear-gradient(135deg,rgba(212,168,67,.25),rgba(212,168,67,.1))'"
+            onmouseout="this.style.background='linear-gradient(135deg,rgba(212,168,67,.15),rgba(212,168,67,.05))'">
+            ▶ Run Simulation
+          </button>
+        </div>
+
+        <!-- Config Summary -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+          <div
+            style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px">
+              Risk Profile</div>
+            <div style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--gold)"
+              id="simRiskName">Moderate</div>
+          </div>
+          <div
+            style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px">
+              Expected Return</div>
+            <div style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--teal)"
+              id="simExpReturn">8.5%</div>
+          </div>
+          <div
+            style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px">
+              Horizon</div>
+            <div style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--text)"
+              id="simHorizonLabel">2Y</div>
+          </div>
+        </div>
+
+        <!-- Result Cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px">
+          <!-- Your Portfolio -->
+          <div
+            style="background:linear-gradient(135deg,rgba(212,168,67,.08),rgba(212,168,67,.02));border:1px solid rgba(212,168,67,.3);border-radius:var(--radius);padding:16px">
+            <div
+              style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:8px;font-weight:700">
+              💼 Your Portfolio</div>
+            <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--gold)"
+              id="simPortfolioFinal">—</div>
+            <div style="display:flex;gap:8px;margin-top:6px;font-family:'Space Mono',monospace;font-size:11px">
+              <span id="simPortfolioGain" class="pos">—</span>
+              <span id="simPortfolioGainPct" class="pos" style="opacity:.7">—</span>
+            </div>
+          </div>
+          <!-- S&P 500 -->
+          <div
+            style="background:linear-gradient(135deg,rgba(0,212,177,.08),rgba(0,212,177,.02));border:1px solid rgba(0,212,177,.3);border-radius:var(--radius);padding:16px">
+            <div
+              style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--teal);margin-bottom:8px;font-weight:700">
+              📈 S&P 500 Benchmark</div>
+            <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--teal)"
+              id="simSP500Final">—</div>
+            <div style="display:flex;gap:8px;margin-top:6px;font-family:'Space Mono',monospace;font-size:11px">
+              <span id="simSP500Gain" class="pos">—</span>
+              <span id="simSP500GainPct" class="pos" style="opacity:.7">—</span>
+            </div>
+          </div>
+          <!-- Bonds -->
+          <div
+            style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+            <div
+              style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px;font-weight:700">
+              🔒 Bonds (4%)</div>
+            <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--text2)"
+              id="simBondFinal">—</div>
+            <div style="margin-top:6px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text3)">Low-risk
+              baseline</div>
+          </div>
+          <!-- Total Contributed -->
+          <div
+            style="background:var(--bg-glass2);border:1px solid rgba(255,77,109,.2);border-radius:var(--radius);padding:16px">
+            <div
+              style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--red);margin-bottom:8px;font-weight:700;opacity:.8">
+              💰 Total Contributed</div>
+            <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--text2)"
+              id="simTotalContrib">—</div>
+            <div style="margin-top:6px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text3)">Capital
+              invested</div>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div
+          style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px">
+          <div
+            style="font-size:12px;color:var(--text2);font-weight:700;margin-bottom:12px;font-family:'Syne',sans-serif">
+            Growth Projection</div>
+          <div style="height:380px;position:relative">
+            <canvas id="simChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Milestone Table -->
+        <div
+          style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow-x:auto">
+          <div
+            style="font-size:12px;color:var(--text2);font-weight:700;margin-bottom:12px;font-family:'Syne',sans-serif">
+            📅 Milestone Breakdown</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th
+                  style="text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3)">
+                  Period</th>
+                <th
+                  style="text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3)">
+                  Invested</th>
+                <th
+                  style="text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--gold)">
+                  Portfolio</th>
+                <th
+                  style="text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--teal)">
+                  S&P 500</th>
+                <th
+                  style="text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3)">
+                  Difference</th>
+              </tr>
+            </thead>
+            <tbody id="simMilestoneBody">
+              <tr>
+                <td colspan="5" style="text-align:center;padding:20px;color:var(--text3);font-size:11px">Click "Run
+                  Simulation" to see projections</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
     </main>
   </div>
 
@@ -2347,6 +2492,7 @@
   <script src="app4.js"></script>
   <script src="app5.js"></script>
   <script src="app6.js"></script>
+  <script src="app7.js"></script>
 </body>
 
 </html>
