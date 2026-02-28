@@ -302,12 +302,13 @@ async function refreshLivePrices() {
     if (!stale.length) return;
 
     try {
-        const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+        const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency`;
         const data = await fetchWithProxy(url);
         const results = data?.quoteResponse?.result || [];
         results.forEach(q => {
+            const resolvedPrice = q.regularMarketPrice || q.regularMarketPreviousClose;
             const lp = {
-                price: q.regularMarketPrice,
+                price: resolvedPrice,
                 change: +(q.regularMarketChangePercent || 0).toFixed(2),
                 changeAmt: +(q.regularMarketChange || 0).toFixed(2),
                 name: q.shortName || q.symbol,
@@ -342,12 +343,15 @@ function applyLivePrices() {
 async function fetchLivePrice(sym) {
     const cached = lsGet('price_' + sym, TTL_PRICE);
     if (cached) return cached;
-    const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+    // Add regularMarketPreviousClose as a fallback for when the market is closed
+    const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency`;
     try {
         const data = await fetchWithProxy(url, TTL_PRICE);
         const q = data?.quoteResponse?.result?.[0];
         if (q) {
-            const lp = { price: q.regularMarketPrice, change: +(q.regularMarketChangePercent || 0).toFixed(2), changeAmt: +(q.regularMarketChange || 0).toFixed(2), name: q.shortName || sym, currency: q.currency || 'USD' };
+            // Use previous close if regular market price is unavailable (e.g., market is closed)
+            const resolvedPrice = q.regularMarketPrice || q.regularMarketPreviousClose;
+            const lp = { price: resolvedPrice, change: +(q.regularMarketChangePercent || 0).toFixed(2), changeAmt: +(q.regularMarketChange || 0).toFixed(2), name: q.shortName || sym, currency: q.currency || 'USD' };
             lsSet('price_' + sym, lp);
             return lp;
         }
