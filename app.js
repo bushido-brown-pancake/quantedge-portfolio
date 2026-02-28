@@ -5,24 +5,24 @@ const SECTORS = ['Tech', 'Healthcare', 'Finance', 'Energy', 'Consumer', 'Real Es
 const COLORS = ['#d4a843', '#00d4b1', '#4d9fff', '#a855f7', '#ff4d6d', '#ff8c42', '#58d68d', '#85c1e9', '#f1948a'];
 
 const STOCKS_DB = [
-    { sym: 'AAPL', name: 'Apple Inc.', sector: 'Tech', price: 182.5, change: 1.2, color: '#d4a843' },
-    { sym: 'MSFT', name: 'Microsoft Corp.', sector: 'Tech', price: 378.9, change: 0.8, color: '#00d4b1' },
-    { sym: 'NVDA', name: 'NVIDIA Corp.', sector: 'Tech', price: 495.2, change: 3.1, color: '#4d9fff' },
-    { sym: 'GOOGL', name: 'Alphabet Inc.', sector: 'Tech', price: 140.3, change: -0.4, color: '#a855f7' },
-    { sym: 'META', name: 'Meta Platforms', sector: 'Tech', price: 352.1, change: 2.1, color: '#ff8c42' },
-    { sym: 'TSLA', name: 'Tesla Inc.', sector: 'Tech', price: 245.8, change: -1.8, color: '#ff4d6d' },
-    { sym: 'AMZN', name: 'Amazon.com', sector: 'Consumer', price: 178.2, change: 0.6, color: '#58d68d' },
-    { sym: 'JPM', name: 'JPMorgan Chase', sector: 'Finance', price: 192.4, change: 0.3, color: '#85c1e9' },
-    { sym: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare', price: 158.7, change: -0.2, color: '#f1948a' },
-    { sym: 'XOM', name: 'ExxonMobil', sector: 'Energy', price: 108.3, change: 1.4, color: '#d4a843' },
-    { sym: 'WMT', name: 'Walmart Inc.', sector: 'Consumer', price: 167.9, change: 0.5, color: '#00d4b1' },
-    { sym: 'BAC', name: 'Bank of America', sector: 'Finance', price: 34.2, change: -0.7, color: '#4d9fff' },
-    { sym: 'UNH', name: 'UnitedHealth Group', sector: 'Healthcare', price: 527.3, change: 0.9, color: '#a855f7' },
-    { sym: 'PG', name: "Procter & Gamble", sector: 'Consumer', price: 152.8, change: 0.1, color: '#ff8c42' },
-    { sym: 'HD', name: 'Home Depot', sector: 'Real Estate', price: 342.5, change: 1.2, color: '#ff4d6d' },
-    { sym: 'V', name: 'Visa Inc.', sector: 'Finance', price: 268.4, change: 0.7, color: '#58d68d' },
-    { sym: 'MA', name: 'Mastercard', sector: 'Finance', price: 434.7, change: 0.4, color: '#85c1e9' },
-    { sym: 'DIS', name: 'Walt Disney Co.', sector: 'Consumer', price: 92.3, change: -0.8, color: '#f1948a' },
+    { sym: 'AAPL', name: 'Apple Inc.', sector: 'Tech', price: 182.5, change: 1.2, color: '#d4a843', pe: 28.5, pb: 45.2, ps: 7.5, ev: 22.1, roe: 156.0, roa: 22.5, margin: 25.3, de: 1.4, cr: 0.99, fcf: 4.2, div: 0.5, beta: 1.28 },
+    { sym: 'MSFT', name: 'Microsoft Corp.', sector: 'Tech', price: 378.9, change: 0.8, color: '#00d4b1', pe: 35.2, pb: 12.5, ps: 12.1, ev: 24.3, roe: 39.1, roa: 19.4, margin: 36.2, de: 0.4, cr: 1.2, fcf: 3.8, div: 0.7, beta: 0.90 },
+    { sym: 'NVDA', name: 'NVIDIA Corp.', sector: 'Tech', price: 495.2, change: 3.1, color: '#4d9fff', pe: 75.4, pb: 32.1, ps: 28.5, ev: 55.2, roe: 75.3, roa: 35.1, margin: 42.1, de: 0.2, cr: 3.5, fcf: 1.5, div: 0.05, beta: 1.70 },
+    { sym: 'GOOGL', name: 'Alphabet Inc.', sector: 'Tech', price: 140.3, change: -0.4, color: '#a855f7', pe: 25.1, pb: 6.5, ps: 6.2, ev: 16.5, roe: 27.5, roa: 18.2, margin: 24.1, de: 0.1, cr: 2.1, fcf: 4.5, div: 0.0, beta: 1.05 },
+    { sym: 'META', name: 'Meta Platforms', sector: 'Tech', price: 352.1, change: 2.1, color: '#ff8c42', pe: 32.1, pb: 7.1, ps: 8.2, ev: 20.1, roe: 24.3, roa: 16.7, margin: 28.4, de: 0.1, cr: 2.5, fcf: 5.1, div: 0.0, beta: 1.20 },
+    { sym: 'TSLA', name: 'Tesla Inc.', sector: 'Tech', price: 245.8, change: -1.8, color: '#ff4d6d', pe: 65.2, pb: 11.2, ps: 7.5, ev: 45.1, roe: 22.5, roa: 12.1, margin: 11.5, de: 0.1, cr: 1.7, fcf: 1.2, div: 0.0, beta: 2.10 },
+    { sym: 'AMZN', name: 'Amazon.com', sector: 'Consumer', price: 178.2, change: 0.6, color: '#58d68d', pe: 58.1, pb: 8.5, ps: 3.1, ev: 25.4, roe: 14.2, roa: 5.5, margin: 5.2, de: 0.8, cr: 1.0, fcf: 2.1, div: 0.0, beta: 1.15 },
+    { sym: 'JPM', name: 'JPMorgan Chase', sector: 'Finance', price: 192.4, change: 0.3, color: '#85c1e9', pe: 11.5, pb: 1.7, ps: 3.2, ev: 8.5, roe: 15.5, roa: 1.2, margin: 32.1, de: 2.5, cr: 1.0, fcf: 0.0, div: 2.5, beta: 1.10 },
+    { sym: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare', price: 158.7, change: -0.2, color: '#f1948a', pe: 32.1, pb: 5.2, ps: 4.5, ev: 15.2, roe: 25.1, roa: 12.5, margin: 16.5, de: 0.5, cr: 1.1, fcf: 4.5, div: 3.0, beta: 0.55 },
+    { sym: 'XOM', name: 'ExxonMobil', sector: 'Energy', price: 108.3, change: 1.4, color: '#d4a843', pe: 10.5, pb: 2.1, ps: 1.2, ev: 6.5, roe: 22.1, roa: 11.5, margin: 11.2, de: 0.2, cr: 1.5, fcf: 8.5, div: 3.5, beta: 1.15 },
+    { sym: 'WMT', name: 'Walmart Inc.', sector: 'Consumer', price: 167.9, change: 0.5, color: '#00d4b1', pe: 25.4, pb: 5.5, ps: 0.7, ev: 12.5, roe: 18.5, roa: 7.2, margin: 2.5, de: 0.8, cr: 0.8, fcf: 4.1, div: 1.4, beta: 0.50 },
+    { sym: 'BAC', name: 'Bank of America', sector: 'Finance', price: 34.2, change: -0.7, color: '#4d9fff', pe: 10.2, pb: 1.1, ps: 2.5, ev: 8.1, roe: 10.5, roa: 0.9, margin: 28.5, de: 2.1, cr: 1.0, fcf: 0.0, div: 2.8, beta: 1.35 },
+    { sym: 'UNH', name: 'UnitedHealth Group', sector: 'Healthcare', price: 527.3, change: 0.9, color: '#a855f7', pe: 21.5, pb: 5.8, ps: 1.3, ev: 14.5, roe: 28.5, roa: 8.5, margin: 6.1, de: 0.7, cr: 0.8, fcf: 5.5, div: 1.5, beta: 0.70 },
+    { sym: 'PG', name: "Procter & Gamble", sector: 'Consumer', price: 152.8, change: 0.1, color: '#ff8c42', pe: 25.1, pb: 8.2, ps: 4.5, ev: 18.5, roe: 32.5, roa: 12.5, margin: 17.5, de: 0.6, cr: 0.6, fcf: 4.8, div: 2.5, beta: 0.45 },
+    { sym: 'HD', name: 'Home Depot', sector: 'Real Estate', price: 342.5, change: 1.2, color: '#ff4d6d', pe: 22.5, pb: 210.5, ps: 2.5, ev: 16.5, roe: 1500.5, roa: 22.5, margin: 10.5, de: 35.1, cr: 1.3, fcf: 5.2, div: 2.5, beta: 0.95 },
+    { sym: 'V', name: 'Visa Inc.', sector: 'Finance', price: 268.4, change: 0.7, color: '#58d68d', pe: 31.5, pb: 15.2, ps: 16.5, ev: 25.5, roe: 45.2, roa: 22.5, margin: 52.5, de: 0.5, cr: 1.5, fcf: 4.5, div: 0.7, beta: 0.95 },
+    { sym: 'MA', name: 'Mastercard', sector: 'Finance', price: 434.7, change: 0.4, color: '#85c1e9', pe: 35.5, pb: 65.2, ps: 18.5, ev: 28.5, roe: 155.2, roa: 28.5, margin: 45.5, de: 2.5, cr: 1.2, fcf: 3.5, div: 0.5, beta: 1.10 },
+    { sym: 'DIS', name: 'Walt Disney Co.', sector: 'Consumer', price: 92.3, change: -0.8, color: '#f1948a', pe: 45.5, pb: 1.8, ps: 2.1, ev: 15.5, roe: 4.5, roa: 2.5, margin: 4.5, de: 0.5, cr: 1.0, fcf: 2.5, div: 1.2, beta: 1.30 },
 ];
 
 let state = {
@@ -203,7 +203,7 @@ function escapeHtml(str) {
 // =============================================
 // LOCALSTORAGE CACHE  (survives page reloads)
 // =============================================
-const LS_PREFIX = 'qe3_';           // bump version to clear all old stale data
+const LS_PREFIX = 'qe4_';           // bump version to clear all old stale data
 const TTL_PRICE = 2 * 60 * 1000;   // 2 min — live prices (fresher)
 const TTL_SUMMARY = 60 * 60 * 1000;  // 1 hour — fundamentals / ratios
 

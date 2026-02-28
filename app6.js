@@ -258,7 +258,13 @@ async function fetchBatchRatios(syms) {
         stale.forEach(s => {
             if (!ratioCache[s]) {
                 const db = STOCKS_DB.find(x => x.sym === s);
-                ratioCache[s] = { pe: null, pb: null, ps: null, ev: null, roe: null, roa: null, margin: null, de: null, cr: null, fcf: null, div: null, beta: null, _name: db?.name || s, _sector: '', _ts: Date.now() };
+                ratioCache[s] = {
+                    pe: db?.pe ?? null, pb: db?.pb ?? null, ps: db?.ps ?? null,
+                    ev: db?.ev ?? null, roe: db?.roe ?? null, roa: db?.roa ?? null,
+                    margin: db?.margin ?? null, de: db?.de ?? null, cr: db?.cr ?? null,
+                    fcf: db?.fcf ?? null, div: db?.div ?? null, beta: db?.beta ?? null,
+                    _name: db?.name || s, _sector: db?.sector || '', _ts: Date.now()
+                };
                 lsSet('qratio_' + s, ratioCache[s]);
             }
         });
