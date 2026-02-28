@@ -95,13 +95,21 @@ async function fetchCompPrices(side) {
 }
 
 function updateCompPriceEl(side, sym, data) {
-    // Update all .comp-price-SYM cells across both cards
-    document.querySelectorAll(`.comp-price-${sym}`).forEach(el => {
-        const sign = data.change >= 0 ? '+' : '';
-        const cls = data.change >= 0 ? 'pos' : 'neg';
-        el.innerHTML = `<div style="font-size:12px;color:var(--text)">$${data.price.toFixed(2)}</div>
-            <div class="${cls}" style="font-size:9px">${sign}${data.change}%</div>`;
-    });
+    try {
+        // Update all .comp-price-SYM cells across both cards
+        // Escape the symbol string carefully to prevent querySelectorAll from throwing DOM exceptions on special characters (like '.') 
+        const safeClass = CSS.escape(`comp-price-${sym}`);
+        document.querySelectorAll(`.${safeClass}`).forEach(el => {
+            const p = typeof data?.price === 'number' ? data.price : 0;
+            const c = typeof data?.change === 'number' ? data.change : 0;
+            const sign = c >= 0 ? '+' : '';
+            const cls = c >= 0 ? 'pos' : 'neg';
+            el.innerHTML = `<div style="font-size:12px;color:var(--text)">$${p.toFixed(2)}</div>
+                <div class="${cls}" style="font-size:9px">${sign}${c}%</div>`;
+        });
+    } catch (e) {
+        console.warn(`Failed to update price for ${sym}:`, e);
+    }
 }
 
 function renderCompStats(side) {
