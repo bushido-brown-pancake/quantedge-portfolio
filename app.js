@@ -203,7 +203,7 @@ function escapeHtml(str) {
 // =============================================
 // LOCALSTORAGE CACHE  (survives page reloads)
 // =============================================
-const LS_PREFIX = 'qe4_';           // bump version to clear all old stale data
+const LS_PREFIX = 'qe5_';           // bump version to clear all old stale data
 const TTL_PRICE = 2 * 60 * 1000;   // 2 min — live prices (fresher)
 const TTL_SUMMARY = 60 * 60 * 1000;  // 1 hour — fundamentals / ratios
 
@@ -222,7 +222,7 @@ function lsGet(key, ttl) {
 // Remove any keys from old cache versions on startup
 function clearOldCache() {
     try {
-        const oldPrefixes = ['qe_', 'qe2_'];
+        const oldPrefixes = ['qe_', 'qe2_', 'qe3_', 'qe4_'];
         Object.keys(localStorage)
             .filter(k => oldPrefixes.some(p => k.startsWith(p)))
             .forEach(k => localStorage.removeItem(k));

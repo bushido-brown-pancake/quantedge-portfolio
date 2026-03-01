@@ -254,21 +254,24 @@ async function fetchBatchRatios(syms) {
             lsSet('qratio_' + sym, r);
         });
     } catch (_) {
-        // API failed — mark missing stocks so cards show dashes instead of spinning
-        stale.forEach(s => {
-            if (!ratioCache[s]) {
-                const db = STOCKS_DB.find(x => x.sym === s);
-                ratioCache[s] = {
-                    pe: db?.pe ?? null, pb: db?.pb ?? null, ps: db?.ps ?? null,
-                    ev: db?.ev ?? null, roe: db?.roe ?? null, roa: db?.roa ?? null,
-                    margin: db?.margin ?? null, de: db?.de ?? null, cr: db?.cr ?? null,
-                    fcf: db?.fcf ?? null, div: db?.div ?? null, beta: db?.beta ?? null,
-                    _name: db?.name || s, _sector: db?.sector || '', _ts: Date.now()
-                };
-                lsSet('qratio_' + s, ratioCache[s]);
-            }
-        });
+        // Network/proxy failure — handled by fallback below
     }
+
+    // 3) ALWAYS fill any remaining symbols from STOCKS_DB
+    //    (handles BOTH network errors AND API returning empty/error JSON)
+    stale.forEach(s => {
+        if (!ratioCache[s]) {
+            const db = STOCKS_DB.find(x => x.sym === s);
+            ratioCache[s] = {
+                pe: db?.pe ?? null, pb: db?.pb ?? null, ps: db?.ps ?? null,
+                ev: db?.ev ?? null, roe: db?.roe ?? null, roa: db?.roa ?? null,
+                margin: db?.margin ?? null, de: db?.de ?? null, cr: db?.cr ?? null,
+                fcf: db?.fcf ?? null, div: db?.div ?? null, beta: db?.beta ?? null,
+                _name: db?.name || s, _sector: db?.sector || '', _ts: Date.now()
+            };
+            lsSet('qratio_' + s, ratioCache[s]);
+        }
+    });
 }
 
 // ──────────────────────────────────────────────
