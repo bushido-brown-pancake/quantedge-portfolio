@@ -201,21 +201,79 @@ function patchStockCard(sym, active) {
 }
 
 // ──────────────────────────────────────────────
-// FETCH RATIOS via v7/quote (same endpoint as prices — works on GitHub Pages!)
 // ──────────────────────────────────────────────
-const RATIO_FIELDS = [
-    'regularMarketPrice', 'regularMarketChangePercent',
-    'shortName', 'sector',
-    'trailingPE', 'priceToBook', 'priceToSalesTrailing12Months', 'enterpriseToEbitda',
-    'returnOnEquity', 'returnOnAssets', 'profitMargins',
-    'debtToEquity', 'currentRatio',
-    'trailingAnnualDividendYield', 'dividendYield', 'beta',
-].join(',');
+// FETCH RATIOS — Yahoo Finance crumb approach
+// The browser already has YF cookies set, so we can fetch a crumb and use
+// v10/quoteSummary to get real ratios for ANY stock symbol.
+// ──────────────────────────────────────────────
+let _yfCrumb = null;
+let _yfCrumbExpiry = 0;
+
+async function getYFCrumb() {
+    if (_yfCrumb && Date.now() < _yfCrumbExpiry) return _yfCrumb;
+    try {
+        // Uses the browser's existing Yahoo Finance cookies (credentials: 'include')
+        const res = await fetch('https://finance.yahoo.com/v1/test/getcrumb', {
+            credentials: 'include',
+            signal: AbortSignal.timeout(4000),
+        });
+        if (!res.ok) return null;
+        const crumb = await res.text();
+        if (crumb && crumb.length > 1 && !crumb.includes('<') && !crumb.includes('{')) {
+            _yfCrumb = crumb.trim();
+            _yfCrumbExpiry = Date.now() + 30 * 60 * 1000; // cache for 30 mins
+            return _yfCrumb;
+        }
+    } catch (_) { }
+    return null;
+}
+
+async function fetchSummaryForSym(sym, crumb) {
+    const modules = 'defaultKeyStatistics,financialData,summaryDetail,price,assetProfile';
+    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${sym}?modules=${modules}&crumb=${encodeURIComponent(crumb)}`;
+    const res = await fetch(url, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const summary = json?.quoteSummary?.result?.[0];
+    if (!summary) throw new Error('no data');
+    return summary;
+}
+
+function buildRatiosFromSummary(sym, summary) {
+    const kv = summary?.defaultKeyStatistics || {};
+    const fd = summary?.financialData || {};
+    const sd = summary?.summaryDetail || {};
+    const pr = summary?.price || {};
+    const ap = summary?.assetProfile || {};
+    const r = v => v?.raw ?? null;
+    const pct = v => v?.raw != null ? +(v.raw * 100).toFixed(2) : null;
+    const mktCap = r(pr.marketCap) ?? r(sd.marketCap);
+    return {
+        pe: r(kv.trailingPE) ?? r(sd.trailingPE),
+        pb: r(kv.priceToBook),
+        ps: r(kv.priceToSalesTrailing12Months),
+        ev: r(kv.enterpriseToEbitda),
+        roe: pct(fd.returnOnEquity),
+        roa: pct(fd.returnOnAssets),
+        margin: pct(fd.profitMargins),
+        de: r(fd.debtToEquity),
+        cr: r(fd.currentRatio),
+        fcf: mktCap && r(fd.freeCashflow) ? +((r(fd.freeCashflow) / mktCap) * 100).toFixed(2) : null,
+        div: pct(sd.dividendYield) ?? pct(sd.trailingAnnualDividendYield),
+        beta: r(sd.beta) ?? r(kv.beta),
+        _name: pr.shortName || pr.longName || sym,
+        _sector: ap.sector || '',
+        _ts: Date.now(),
+    };
+}
 
 async function fetchBatchRatios(syms) {
     if (!syms.length) return;
 
-    // 1) Check localStorage cache first
+    // 1) Load from localStorage cache
     syms.forEach(s => {
         const c = lsGet('qratio_' + s, CACHE_TTL);
         if (c) ratioCache[s] = c;
@@ -224,41 +282,24 @@ async function fetchBatchRatios(syms) {
     const stale = syms.filter(s => !ratioCache[s]);
     if (!stale.length) return;
 
-    // 2) ONE batch request with ratio fields
-    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${stale.join(',')}&fields=${RATIO_FIELDS}`;
-    try {
-        const data = await fetchWithProxy(url);
-        const results = data?.quoteResponse?.result || [];
-        results.forEach(q => {
-            const sym = q.symbol;
-            const r = {
-                pe: q.trailingPE ?? null,
-                pb: q.priceToBook ?? null,
-                ps: q.priceToSalesTrailing12Months ?? null,
-                ev: q.enterpriseToEbitda ?? null,
-                roe: q.returnOnEquity != null ? +(q.returnOnEquity * 100).toFixed(2) : null,
-                roa: q.returnOnAssets != null ? +(q.returnOnAssets * 100).toFixed(2) : null,
-                margin: q.profitMargins != null ? +(q.profitMargins * 100).toFixed(2) : null,
-                de: q.debtToEquity ?? null,
-                cr: q.currentRatio ?? null,
-                fcf: null,
-                div: (q.trailingAnnualDividendYield ?? q.dividendYield) != null
-                    ? +((q.trailingAnnualDividendYield ?? q.dividendYield) * 100).toFixed(2)
-                    : null,
-                beta: q.beta ?? null,
-                _name: q.shortName || sym,
-                _sector: q.sector || '',
-                _ts: Date.now(),
-            };
-            ratioCache[sym] = r;
-            lsSet('qratio_' + sym, r);
-        });
-    } catch (_) {
-        // Network/proxy failure — handled by fallback below
+    // 2) Try to get a crumb (uses browser's Yahoo Finance cookies)
+    const crumb = await getYFCrumb();
+
+    if (crumb) {
+        // Fetch each symbol individually (v10/quoteSummary doesn't batch)
+        await Promise.allSettled(stale.map(async sym => {
+            try {
+                const summary = await fetchSummaryForSym(sym, crumb);
+                const r = buildRatiosFromSummary(sym, summary);
+                ratioCache[sym] = r;
+                lsSet('qratio_' + sym, r);
+            } catch (_) {
+                // Individual symbol failed — will be handled by fallback below
+            }
+        }));
     }
 
-    // 3) ALWAYS fill any remaining symbols from STOCKS_DB
-    //    (handles BOTH network errors AND API returning empty/error JSON)
+    // 3) ALWAYS fill any remaining symbols (API failed / crumb not available / new stock not in DB)
     stale.forEach(s => {
         if (!ratioCache[s]) {
             const db = STOCKS_DB.find(x => x.sym === s);
