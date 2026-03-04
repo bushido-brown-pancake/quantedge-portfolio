@@ -305,6 +305,14 @@ function confirmAddStock() {
         livePrices[sym] = { price: state.modalStock.price, change: state.modalStock.change ?? 0, changeAmt: state.modalStock.changeAmt ?? 0, currency: state.modalStock.currency ?? 'USD', _ts: Date.now() };
     }
     renderPortfolioTable(); renderTopMetrics(); renderRatios(); fetchAndUpdateRow(sym);
+    // Clear any old cached ratios so the new stock fetches fresh data
+    if (typeof ratioCache !== 'undefined') delete ratioCache[sym];
+    try { localStorage.removeItem(LS_PREFIX + 'qratio_' + sym); } catch (_) { }
+    // If Financials tab is open, refresh ratio cards immediately
+    if (document.getElementById('tab-financials')?.classList.contains('active') &&
+        typeof fetchAndRenderRatios === 'function') {
+        fetchAndRenderRatios();
+    }
     notify(`✓ Added ${shares} shares of ${sym}`, 'success');
 }
 

@@ -273,7 +273,7 @@ function buildRatiosFromSummary(sym, summary) {
 async function fetchBatchRatios(syms) {
     if (!syms.length) return;
 
-    // 1) Load from localStorage cache
+    // 1) Load from localStorage cache first (instant display)
     syms.forEach(s => {
         const c = lsGet('qratio_' + s, CACHE_TTL);
         if (c) ratioCache[s] = c;
@@ -282,38 +282,50 @@ async function fetchBatchRatios(syms) {
     const stale = syms.filter(s => !ratioCache[s]);
     if (!stale.length) return;
 
-    // 2) Try to get a crumb (uses browser's Yahoo Finance cookies)
-    const crumb = await getYFCrumb();
-
-    if (crumb) {
-        // Fetch each symbol individually (v10/quoteSummary doesn't batch)
-        await Promise.allSettled(stale.map(async sym => {
-            try {
-                const summary = await fetchSummaryForSym(sym, crumb);
+    // 2) Fetch via CORS proxy (same approach as price fetching — no auth needed)
+    await Promise.allSettled(stale.map(async sym => {
+        try {
+            const modules = 'defaultKeyStatistics,financialData,summaryDetail,price,assetProfile';
+            const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${sym}?modules=${modules}`;
+            const data = await fetchWithProxy(url);
+            const summary = data?.quoteSummary?.result?.[0];
+            if (summary) {
                 const r = buildRatiosFromSummary(sym, summary);
-                ratioCache[sym] = r;
-                lsSet('qratio_' + sym, r);
-            } catch (_) {
-                // Individual symbol failed — will be handled by fallback below
+                // Reject if all key fields are null (YF returned empty data)
+                const hasData = r.pe !== null || r.pb !== null || r.roe !== null || r.de !== null;
+                if (hasData) {
+                    ratioCache[sym] = r;
+                    lsSet('qratio_' + sym, r);
+                    return; // success — skip fallback
+                }
             }
-        }));
-    }
+        } catch (_) { }
 
-    // 3) ALWAYS fill any remaining symbols (API failed / crumb not available / new stock not in DB)
-    stale.forEach(s => {
-        if (!ratioCache[s]) {
-            const db = STOCKS_DB.find(x => x.sym === s);
-            ratioCache[s] = {
-                pe: db?.pe ?? null, pb: db?.pb ?? null, ps: db?.ps ?? null,
-                ev: db?.ev ?? null, roe: db?.roe ?? null, roa: db?.roa ?? null,
-                margin: db?.margin ?? null, de: db?.de ?? null, cr: db?.cr ?? null,
-                fcf: db?.fcf ?? null, div: db?.div ?? null, beta: db?.beta ?? null,
-                _name: db?.name || s, _sector: db?.sector || '', _ts: Date.now()
+        // 3) Fallback: sector-aware defaults (always fills something useful)
+        if (!ratioCache[sym]) {
+            const db = STOCKS_DB.find(x => x.sym === sym);
+            const sector = db?.sector || '';
+            // Match SECTOR_RATIOS keys from app3.js
+            const sKey = ['Technology', 'Healthcare', 'Finance', 'Energy', 'Consumer',
+                'Industrial', 'Real Estate', 'Utilities'].find(
+                    k => sector.toLowerCase().includes(k.toLowerCase())
+                ) || 'Unknown';
+            const def = (typeof SECTOR_RATIOS !== 'undefined' && SECTOR_RATIOS[sKey]) || {
+                pe: 22, pb: 3.5, evEbitda: 15, deRatio: 0.7, roe: 18, roa: 9, fcfYield: 4.0, divYield: 1.5
             };
-            lsSet('qratio_' + s, ratioCache[s]);
+            ratioCache[sym] = {
+                pe: def.pe, pb: def.pb, ps: null,
+                ev: def.evEbitda, roe: def.roe, roa: def.roa,
+                margin: null, de: def.deRatio, cr: null,
+                fcf: def.fcfYield, div: def.divYield, beta: null,
+                _name: db?.name || sym, _sector: sector || sKey, _ts: Date.now(),
+                _isFallback: true,
+            };
+            lsSet('qratio_' + sym, ratioCache[sym]);
         }
-    });
+    }));
 }
+
 
 // ──────────────────────────────────────────────
 // MAIN ENTRY — fetch ratios then render cards
