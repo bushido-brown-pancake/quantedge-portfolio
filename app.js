@@ -203,7 +203,7 @@ function escapeHtml(str) {
 // =============================================
 // LOCALSTORAGE CACHE  (survives page reloads)
 // =============================================
-const LS_PREFIX = 'qe5_';           // bump version to clear all old stale data
+const LS_PREFIX = 'qe6_';           // bump version to clear all old stale data
 const TTL_PRICE = 2 * 60 * 1000;   // 2 min — live prices (fresher)
 const TTL_SUMMARY = 60 * 60 * 1000;  // 1 hour — fundamentals / ratios
 
@@ -240,13 +240,23 @@ const TD_BASE = 'https://api.twelvedata.com';
 // Financialmodelingprep free (no key for basic quote)
 const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
 
-// CORS proxies — we try the last-working one first
+// CORS proxies — ALL raced simultaneously via Promise.any()
 const CORS_PROXIES = [
     url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    url => `https://thingproxy.freeboard.io/fetch/${url}`,
+    url => `https://yacdn.org/proxy/${url}`,
 ];
-let workingProxyIdx = 0;
+
+// Try one proxy (resolves with parsed JSON or rejects)
+async function tryProxy(proxyUrl, timeout = 5000) {
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(timeout) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    if (!text || text.length < 10) throw new Error('Empty');
+    return JSON.parse(text);
+}
 
 async function fetchWithProxy(targetUrl, ttl = 0) {
     // 1) Check localStorage cache first
@@ -255,7 +265,7 @@ async function fetchWithProxy(targetUrl, ttl = 0) {
         if (cached) return cached;
     }
 
-    // 2) Try direct fetch first (works when hosted, skips proxies entirely)
+    // 2) Try direct fetch first (works when self-hosted, no proxy needed)
     try {
         const res = await fetch(targetUrl, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
@@ -265,23 +275,15 @@ async function fetchWithProxy(targetUrl, ttl = 0) {
         }
     } catch (_) { }
 
-    // 3) Race the last-known working proxy against the others
-    const order = [workingProxyIdx,
-        ...[0, 1, 2].filter(i => i !== workingProxyIdx)];
+    // 3) Race ALL proxies simultaneously — fastest wins
+    try {
+        const data = await Promise.any(
+            CORS_PROXIES.map(fn => tryProxy(fn(targetUrl), 6000))
+        );
+        if (ttl > 0) lsSet('url_' + btoa(targetUrl.slice(-80)), data);
+        return data;
+    } catch (_) { }
 
-    for (const idx of order) {
-        try {
-            const res = await fetch(CORS_PROXIES[idx](targetUrl),
-                { signal: AbortSignal.timeout(4000) });
-            if (!res.ok) continue;
-            const text = await res.text();
-            if (!text || text.length < 10) continue;
-            const data = JSON.parse(text);
-            workingProxyIdx = idx;
-            if (ttl > 0) lsSet('url_' + btoa(targetUrl.slice(-80)), data);
-            return data;
-        } catch (_) { continue; }
-    }
     throw new Error('All proxies failed');
 }
 
