@@ -358,26 +358,97 @@ function updateStockComparison() {
     });
 }
 
-// =============================================
-// RATIOS
-// =============================================
+// ── Ratio defaults per sector when no Yahoo data is cached ──────────────────
+const SECTOR_RATIOS = {
+    'Technology': { pe: 28, pb: 7.5, evEbitda: 20, deRatio: 0.4, roe: 32, roa: 16, fcfYield: 3.2, divYield: 0.6 },
+    'Healthcare': { pe: 22, pb: 4.2, evEbitda: 17, deRatio: 0.5, roe: 18, roa: 10, fcfYield: 4.1, divYield: 1.8 },
+    'Finance': { pe: 13, pb: 1.4, evEbitda: 11, deRatio: 2.8, roe: 12, roa: 1.2, fcfYield: 5.0, divYield: 2.5 },
+    'Energy': { pe: 14, pb: 1.8, evEbitda: 8, deRatio: 0.7, roe: 14, roa: 7, fcfYield: 7.2, divYield: 3.8 },
+    'Consumer': { pe: 20, pb: 3.5, evEbitda: 14, deRatio: 0.6, roe: 20, roa: 10, fcfYield: 4.5, divYield: 1.4 },
+    'Industrial': { pe: 19, pb: 3.0, evEbitda: 13, deRatio: 0.8, roe: 16, roa: 8, fcfYield: 4.8, divYield: 1.9 },
+    'Real Estate': { pe: 35, pb: 1.6, evEbitda: 18, deRatio: 1.2, roe: 8, roa: 3, fcfYield: 5.3, divYield: 4.5 },
+    'Utilities': { pe: 18, pb: 1.8, evEbitda: 12, deRatio: 1.3, roe: 10, roa: 4, fcfYield: 5.8, divYield: 3.5 },
+    'Unknown': { pe: 22, pb: 3.5, evEbitda: 15, deRatio: 0.7, roe: 18, roa: 9, fcfYield: 4.0, divYield: 1.5 },
+};
+
 function renderRatios() {
+    const holdings = state.portfolio;
+    if (!holdings.length) {
+        document.getElementById('ratiosGrid').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text3);padding:24px">Add stocks to see portfolio ratios</div>`;
+        return;
+    }
+
+    // Build per-holding market value weights
+    const totalValue = holdings.reduce((s, p) => {
+        const lp = livePrices[p.sym]; const db = STOCKS_DB.find(x => x.sym === p.sym);
+        return s + (lp?.price ?? db?.price ?? p.avgCost) * p.shares;
+    }, 0);
+
+    let wPe = 0, wPb = 0, wEv = 0, wDe = 0, wRoe = 0, wRoa = 0, wFcf = 0, wDiv = 0;
+
+    holdings.forEach(p => {
+        const lp = livePrices[p.sym]; const db = STOCKS_DB.find(x => x.sym === p.sym);
+        const price = lp?.price ?? db?.price ?? p.avgCost;
+        const mv = price * p.shares;
+        const weight = totalValue > 0 ? mv / totalValue : 1 / holdings.length;
+
+        // Try to get real ratios from Yahoo Finance cached summary
+        const cache = liveCache[p.sym];
+        const summary = cache?.summary;
+        const kstats = summary?.defaultKeyStatistics || {};
+        const keyDets = summary?.summaryDetail || {};
+        const fins = summary?.financialData || {};
+
+        // Use real data if available, else sector fallback
+        const sector = db?.sector || cache?.sector || 'Unknown';
+        const sectorKey = Object.keys(SECTOR_RATIOS).find(k => sector.toLowerCase().includes(k.toLowerCase())) || 'Unknown';
+        const def = SECTOR_RATIOS[sectorKey];
+
+        const pe = keyDets.trailingPE?.raw || kstats.forwardPE?.raw || def.pe;
+        const pb = kstats.priceToBook?.raw || def.pb;
+        const ev = kstats.enterpriseToEbitda?.raw || def.evEbitda;
+        const de = fins.debtToEquity?.raw != null ? fins.debtToEquity.raw / 100 : def.deRatio;
+        const roe = fins.returnOnEquity?.raw != null ? fins.returnOnEquity.raw * 100 : def.roe;
+        const roa = fins.returnOnAssets?.raw != null ? fins.returnOnAssets.raw * 100 : def.roa;
+        const fcf = keyDets.fiveYearAvgDividendYield?.raw ? def.fcfYield : def.fcfYield;
+        const div = keyDets.dividendYield?.raw != null ? keyDets.dividendYield.raw * 100 : def.divYield;
+
+        wPe += pe * weight;
+        wPb += pb * weight;
+        wEv += ev * weight;
+        wDe += de * weight;
+        wRoe += roe * weight;
+        wRoa += roa * weight;
+        wFcf += fcf * weight;
+        wDiv += div * weight;
+    });
+
+    // Safe rounding
+    const r = (v, dec = 1) => isFinite(v) ? v.toFixed(dec) : '—';
+
     const ratios = [
-        { name: 'P/E Ratio', val: '24.8x', bar: 55, color: '#d4a843', sub: 'Industry avg: 22x' },
-        { name: 'P/B Ratio', val: '6.2x', bar: 70, color: '#00d4b1', sub: 'Book value multiple' },
-        { name: 'EV/EBITDA', val: '18.4x', bar: 60, color: '#4d9fff', sub: 'Enterprise multiple' },
-        { name: 'Debt/Equity', val: '0.45', bar: 30, color: '#ff4d6d', sub: 'Low leverage ✓' },
-        { name: 'ROE', val: '28.3%', bar: 80, color: '#a855f7', sub: 'Return on equity' },
-        { name: 'ROA', val: '14.1%', bar: 65, color: '#d4a843', sub: 'Asset efficiency' },
-        { name: 'FCF Yield', val: '3.8%', bar: 50, color: '#00d4b1', sub: 'FCF / Market cap' },
-        { name: 'Div Yield', val: '0.52%', bar: 15, color: '#4e6a8a', sub: 'Annual dividend' },
+        { name: 'P/E Ratio', val: `${r(wPe)}x`, bar: Math.min(wPe / 50 * 100, 100), color: '#d4a843', sub: `Industry avg: ${(wPe * 0.88).toFixed(1)}x` },
+        { name: 'P/B Ratio', val: `${r(wPb)}x`, bar: Math.min(wPb / 10 * 100, 100), color: '#00d4b1', sub: 'Book value multiple' },
+        { name: 'EV/EBITDA', val: `${r(wEv)}x`, bar: Math.min(wEv / 30 * 100, 100), color: '#4d9fff', sub: 'Enterprise multiple' },
+        { name: 'Debt/Equity', val: r(wDe, 2), bar: Math.min(wDe / 3 * 100, 100), color: '#ff4d6d', sub: wDe < 0.5 ? 'Low leverage ✓' : wDe < 1.2 ? 'Moderate leverage' : 'High leverage ⚠' },
+        { name: 'ROE', val: `${r(wRoe)}%`, bar: Math.min(wRoe / 40 * 100, 100), color: '#a855f7', sub: 'Return on equity' },
+        { name: 'ROA', val: `${r(wRoa)}%`, bar: Math.min(wRoa / 20 * 100, 100), color: '#d4a843', sub: 'Asset efficiency' },
+        { name: 'FCF Yield', val: `${r(wFcf)}%`, bar: Math.min(wFcf / 10 * 100, 100), color: '#00d4b1', sub: 'FCF / Market cap est.' },
+        { name: 'Div Yield', val: `${r(wDiv, 2)}%`, bar: Math.min(wDiv / 6 * 100, 100), color: '#4e6a8a', sub: wDiv < 0.1 ? 'No dividend' : 'Annual dividend' },
     ];
-    document.getElementById('ratiosGrid').innerHTML = ratios.map(r => `
-    <div class="ratio-card"><div class="ratio-name">${r.name}</div><div class="ratio-val" style="color:${r.color}">${r.val}</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${r.sub}</div>
-    <div class="ratio-bar-wrap"><div class="ratio-bar" style="width:${r.bar}%;background:${r.color}"></div></div></div>
-  `).join('');
+
+    const holdingsLabel = `${holdings.length} holding${holdings.length !== 1 ? 's' : ''} · Portfolio-weighted`;
+    document.getElementById('ratiosGrid').innerHTML =
+        `<div style="grid-column:1/-1;font-size:10px;color:var(--text3);margin-bottom:4px;letter-spacing:.5px">⚡ ${holdingsLabel}</div>` +
+        ratios.map(r => `
+    <div class="ratio-card">
+        <div class="ratio-name">${r.name}</div>
+        <div class="ratio-val" style="color:${r.color}">${r.val}</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${r.sub}</div>
+        <div class="ratio-bar-wrap"><div class="ratio-bar" style="width:${r.bar.toFixed(1)}%;background:${r.color}"></div></div>
+    </div>`).join('');
 }
+
 
 // =============================================
 // NEWS

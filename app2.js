@@ -304,7 +304,7 @@ function confirmAddStock() {
     if (state.modalStock?.price && !livePrices[sym]) {
         livePrices[sym] = { price: state.modalStock.price, change: state.modalStock.change ?? 0, changeAmt: state.modalStock.changeAmt ?? 0, currency: state.modalStock.currency ?? 'USD', _ts: Date.now() };
     }
-    renderPortfolioTable(); renderTopMetrics(); fetchAndUpdateRow(sym);
+    renderPortfolioTable(); renderTopMetrics(); renderRatios(); fetchAndUpdateRow(sym);
     notify(`✓ Added ${shares} shares of ${sym}`, 'success');
 }
 
@@ -437,7 +437,7 @@ async function fetchAndUpdateRow(sym) {
 function removeStock(sym) {
     showConfirm('Remove Stock', `Remove ${sym} from your portfolio?`, () => {
         state.portfolio = state.portfolio.filter(p => p.sym !== sym);
-        renderPortfolioTable(); renderTopMetrics();
+        renderPortfolioTable(); renderTopMetrics(); renderRatios();
         notify(`Removed ${sym}`, 'error');
     });
 }
