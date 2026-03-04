@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPortfolioTable(); renderTopMetrics(); renderCharts();
     renderNews(); renderRatios(); renderFinancials('income'); renderComparison(); updateStockComparison();
     setTimeout(() => refreshLivePrices().catch(() => updateLivePrices()), 2000);
-    setInterval(() => refreshLivePrices().catch(() => updateLivePrices()), 60000);
+    setInterval(() => refreshLivePrices().catch(() => updateLivePrices()), 30000);
     setInterval(updateLivePrices, 8000);
     // Close modal on Escape
     document.addEventListener('keydown', e => {
@@ -204,7 +204,7 @@ function escapeHtml(str) {
 // LOCALSTORAGE CACHE  (survives page reloads)
 // =============================================
 const LS_PREFIX = 'qe6_';           // bump version to clear all old stale data
-const TTL_PRICE = 2 * 60 * 1000;   // 2 min — live prices (fresher)
+const TTL_PRICE = 60 * 1000;        // 60 sec — live prices refresh every minute
 const TTL_SUMMARY = 60 * 60 * 1000;  // 1 hour — fundamentals / ratios
 
 function lsSet(key, data) {

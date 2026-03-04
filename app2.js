@@ -85,18 +85,18 @@ function renderSearchResults(results, dd, source = 'yf') {
     startSearchRefresh();  // begin periodic auto-refresh
 }
 
-// Auto-refresh prices in the open dropdown every 30 seconds
+// Auto-refresh prices in the open dropdown every 20 seconds
 function startSearchRefresh() {
     stopSearchRefresh();
     searchRefreshTimer = setInterval(() => {
         const dd = document.getElementById('searchDropdown');
         if (!dd.classList.contains('show') || _lastSearchResults.length === 0) { stopSearchRefresh(); return; }
-        // Invalidate price cache for visible symbols so fetchBatchPrices re-fetches
+        // Remove price cache so fetchBatchPrices re-fetches fresh data
         _lastSearchResults.slice(0, 10).forEach(r => {
-            try { localStorage.removeItem('qe5_price_' + r.symbol); } catch (_) { }
+            try { localStorage.removeItem(LS_PREFIX + 'price_' + r.symbol); } catch (_) { }
         });
         fetchBatchPrices(_lastSearchResults.slice(0, 10).map(r => r.symbol), dd, true);
-    }, 30000);
+    }, 20000);
 }
 function stopSearchRefresh() {
     clearInterval(searchRefreshTimer);
@@ -128,14 +128,32 @@ function applyPriceToCell(sym, data, dd, updateExisting) {
     lsSet('price_' + sym, data);
     const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
     if (!cell) return;
-    const cls = (data.change || 0) >= 0 ? 'pos' : 'neg';
+    const prefix = data.currency && data.currency !== 'USD' ? data.currency + '\u00a0' : '$';
     const sign = (data.change || 0) >= 0 ? '+' : '';
-    const prefix = data.currency && data.currency !== 'USD' ? data.currency + ' ' : '$';
-    const changeRow = data.marketClosed
-        ? `<div style="font-size:9px;color:var(--text3);letter-spacing:.5px">LAST CLOSE</div>`
-        : `<div class="${cls}" style="font-size:10px;font-family:'Space Mono',monospace">${sign}${(data.changeAmt || 0).toFixed(2)} (${sign}${(data.change || 0).toFixed(2)}%)</div>`;
-    cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text);animation:fadeIn .3s ease">${prefix}${data.price.toFixed(2)}</div>${changeRow}`;
+    const cls = (data.change || 0) >= 0 ? 'pos' : 'neg';
+    if (data.marketClosed) {
+        cell.innerHTML = `
+        <div style="text-align:right;animation:fadeIn .3s ease">
+          <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text)">${prefix}${data.price.toFixed(2)}</div>
+          <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:1px">
+            <span style="font-size:9px;color:var(--text3)">${sign}${(data.change || 0).toFixed(2)}%</span>
+            <span style="font-size:8px;background:#b8860b22;color:#f0b429;border:1px solid #f0b42944;border-radius:3px;padding:1px 5px;letter-spacing:.6px">CLOSE</span>
+          </div>
+        </div>`;
+    } else {
+        cell.innerHTML = `
+        <div style="text-align:right;animation:fadeIn .3s ease">
+          <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text)">${prefix}${data.price.toFixed(2)}</div>
+          <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:1px">
+            <span class="${cls}" style="font-size:9px;font-family:'Space Mono',monospace">${sign}${(data.changeAmt || 0).toFixed(2)} (${sign}${(data.change || 0).toFixed(2)}%)</span>
+            <span style="font-size:8px;background:#00e5a018;color:#00e5a0;border:1px solid #00e5a033;border-radius:3px;padding:1px 5px;letter-spacing:.6px;display:flex;align-items:center;gap:2px">
+              <span style="width:4px;height:4px;border-radius:50%;background:#00e5a0;animation:pulse 1.5s infinite;display:inline-block"></span>LIVE
+            </span>
+          </div>
+        </div>`;
+    }
 }
+
 
 function showOffline(sym, dd) {
     const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
