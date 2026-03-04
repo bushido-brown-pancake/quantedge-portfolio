@@ -105,30 +105,7 @@ function stopSearchRefresh() {
 
 async function fetchBatchPrices(symbols, dd, updateExisting = false) {
     if (!symbols.length) return;
-
-    // ── Strategy 1: ONE batch Yahoo request for all symbols ───────────────────
-    try {
-        const url = `${YF_BASE2}/v7/finance/quote?symbols=${symbols.join(',')}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency,marketState`;
-        const data = await fetchWithProxy(url, TTL_PRICE);
-        const results = data?.quoteResponse?.result || [];
-        if (results.length > 0) {
-            results.forEach(q => applyPriceToCell(q.symbol, {
-                price: q.regularMarketPrice || q.regularMarketPreviousClose,
-                previousClose: q.regularMarketPreviousClose,
-                change: +(q.regularMarketChangePercent || 0).toFixed(2),
-                changeAmt: +(q.regularMarketChange || 0).toFixed(2),
-                name: q.shortName || q.symbol,
-                currency: q.currency || 'USD',
-                marketClosed: !q.regularMarketPrice || ['CLOSED', 'PRE', 'PREPRE', 'POST', 'POSTPOST'].includes(q.marketState),
-            }, dd, updateExisting));
-            // show OFFLINE for symbols that received no data
-            const found = new Set(results.map(q => q.symbol));
-            symbols.filter(s => !found.has(s)).forEach(s => showOffline(s, dd));
-            return;
-        }
-    } catch (_) { }
-
-    // ── Strategy 2: Individual relay calls (parallel) as fallback ─────────────
+    // Fetch all in parallel — each uses v8/chart (no auth) + Twelve Data fallback
     await Promise.all(symbols.map(async sym => {
         try {
             const data = await fetchLivePrice(sym);

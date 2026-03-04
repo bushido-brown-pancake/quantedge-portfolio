@@ -230,27 +230,28 @@ function clearOldCache() {
 }
 
 // =============================================
-// FINANCE APIs — Yahoo Finance primary + relays
+// FINANCE APIs — Local proxy (localhost) → CORS proxies (GitHub Pages)
 // =============================================
 const YF_BASE = 'https://query1.finance.yahoo.com';
 const YF_BASE2 = 'https://query2.finance.yahoo.com';
 
 // Twelve Data — free tier, no key needed for basic quote
 const TD_BASE = 'https://api.twelvedata.com';
-// Financialmodelingprep free (no key for basic quote)
-const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
 
-// CORS proxies — ALL raced simultaneously via Promise.any()
+// Detect if we're running via our local Express server (not file:// or GH Pages)
+const IS_LOCAL_SERVER = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const LOCAL_API = IS_LOCAL_SERVER ? `http://${location.host}` : null;
+
+// CORS proxies — ALL raced simultaneously via Promise.any() (fallback for GH Pages)
 const CORS_PROXIES = [
     url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     url => `https://thingproxy.freeboard.io/fetch/${url}`,
-    url => `https://yacdn.org/proxy/${url}`,
 ];
 
 // Try one proxy (resolves with parsed JSON or rejects)
-async function tryProxy(proxyUrl, timeout = 5000) {
+async function tryProxy(proxyUrl, timeout = 6000) {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(timeout) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
@@ -265,7 +266,20 @@ async function fetchWithProxy(targetUrl, ttl = 0) {
         if (cached) return cached;
     }
 
-    // 2) Try direct fetch first (works when self-hosted, no proxy needed)
+    // 2) Local server proxy (localhost only — zero CORS issues)
+    if (LOCAL_API) {
+        try {
+            const res = await fetch(LOCAL_API + '/api/proxy?url=' + encodeURIComponent(targetUrl),
+                { signal: AbortSignal.timeout(5000) });
+            if (res.ok) {
+                const data = await res.json();
+                if (ttl > 0) lsSet('url_' + btoa(targetUrl.slice(-80)), data);
+                return data;
+            }
+        } catch (_) { }
+    }
+
+    // 3) Try direct fetch (works on same-origin deployments)
     try {
         const res = await fetch(targetUrl, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
@@ -275,7 +289,7 @@ async function fetchWithProxy(targetUrl, ttl = 0) {
         }
     } catch (_) { }
 
-    // 3) Race ALL proxies simultaneously — fastest wins
+    // 4) Race ALL CORS proxies simultaneously — fastest wins (GitHub Pages fallback)
     try {
         const data = await Promise.any(
             CORS_PROXIES.map(fn => tryProxy(fn(targetUrl), 6000))
@@ -292,8 +306,7 @@ async function refreshLivePrices() {
     const syms = [...new Set(state.portfolio.map(p => p.sym))];
     if (!syms.length) return;
 
-    // Load fresh-enough values from localStorage immediately (instant display)
-    // IMPORTANT: stamp _ts so renderPortfolioTable doesn't treat them as stale
+    // Load cached values immediately (instant display, no network wait)
     syms.forEach(s => {
         const c = lsGet('price_' + s, TTL_PRICE);
         if (c) {
@@ -304,71 +317,67 @@ async function refreshLivePrices() {
     });
     applyLivePrices();
 
-    // Only network-fetch symbols whose cache is stale
+    // Fetch stale symbols in parallel using v8/chart (no auth required)
     const stale = syms.filter(s => !lsGet('price_' + s, TTL_PRICE));
     if (!stale.length) return;
 
-    try {
-        const url = `${YF_BASE2}/v7/finance/quote?symbols=${stale.join(',')}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency`;
-        const data = await fetchWithProxy(url);
-        const results = data?.quoteResponse?.result || [];
-        results.forEach(q => {
-            const resolvedPrice = q.regularMarketPrice || q.regularMarketPreviousClose;
-            const lp = {
-                price: resolvedPrice,
-                change: +(q.regularMarketChangePercent || 0).toFixed(2),
-                changeAmt: +(q.regularMarketChange || 0).toFixed(2),
-                name: q.shortName || q.symbol,
-                currency: q.currency || 'USD',
-                _ts: Date.now(),   // ← stamp so table doesn't re-fetch
-            };
-            livePrices[q.symbol] = lp;
-            lsSet('price_' + q.symbol, lp);
-            const db = STOCKS_DB.find(s => s.sym === q.symbol);
-            if (db) { db.price = lp.price; db.change = lp.change; }
-        });
-        applyLivePrices();
-    } catch (_) {
-        // ALL proxies failed — seed livePrices from STOCKS_DB so UI never spins
-        syms.forEach(s => {
-            if (!livePrices[s]) {
-                const db = STOCKS_DB.find(x => x.sym === s);
-                if (db) {
-                    livePrices[s] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
+    await Promise.all(stale.map(async sym => {
+        try {
+            const data = await fetchLivePrice(sym);
+            if (!data || !data.price) {
+                if (!livePrices[sym]) {
+                    const db = STOCKS_DB.find(x => x.sym === sym);
+                    if (db) livePrices[sym] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
                 }
+                return;
             }
-        });
-        applyLivePrices();
-    }
+            data._ts = Date.now();
+            livePrices[sym] = data;
+            lsSet('price_' + sym, data);
+            const db = STOCKS_DB.find(s => s.sym === sym);
+            if (db) { db.price = data.price; db.change = data.change; }
+        } catch (_) {
+            if (!livePrices[sym]) {
+                const db = STOCKS_DB.find(x => x.sym === sym);
+                if (db) livePrices[sym] = { price: db.price, change: db.change, changeAmt: 0, name: db.name, currency: 'USD', _ts: Date.now(), _offline: true };
+            }
+        }
+    }));
+    applyLivePrices();
 }
 
 function applyLivePrices() {
     buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
 }
 
-// ── Single symbol price — Yahoo first, then relay APIs ───────────────────────
+// ── Single symbol price — chart endpoint (no auth) + Twelve Data fallback ─────
 async function fetchLivePrice(sym) {
     const cached = lsGet('price_' + sym, TTL_PRICE);
     if (cached) return cached;
 
-    // 1) Yahoo Finance (via proxy)
+    // 1) Yahoo Finance v8/chart — NO AUTH REQUIRED, works via any proxy
     try {
-        const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency,marketState`;
-        const data = await fetchWithProxy(url, TTL_PRICE);
-        const q = data?.quoteResponse?.result?.[0];
-        if (q) {
-            const liveP = q.regularMarketPrice;
-            const prevClose = q.regularMarketPreviousClose;
-            const isClosed = !liveP || q.marketState === 'CLOSED' || q.marketState === 'PRE' || q.marketState === 'PREPRE' || q.marketState === 'POST' || q.marketState === 'POSTPOST';
+        const url = `${YF_BASE2}/v8/finance/chart/${sym}?interval=1d&range=1d&includePrePost=false`;
+        const data = await fetchWithProxy(url);
+        const result = data?.chart?.result?.[0];
+        if (result) {
+            const meta = result.meta || {};
+            const liveP = meta.regularMarketPrice;
+            const prevClose = meta.previousClose || meta.chartPreviousClose;
+            const marketState = meta.marketState || 'CLOSED';
+            const isClosed = !liveP || marketState === 'CLOSED' || marketState === 'PRE' ||
+                marketState === 'PREPRE' || marketState === 'POST' || marketState === 'POSTPOST';
             const resolvedPrice = liveP || prevClose;
             if (resolvedPrice) {
+                const chgAmt = liveP && prevClose ? liveP - prevClose : 0;
+                const chgPct = prevClose ? (chgAmt / prevClose * 100) : 0;
                 const lp = {
                     price: resolvedPrice,
                     previousClose: prevClose || resolvedPrice,
-                    change: +(q.regularMarketChangePercent || 0).toFixed(2),
-                    changeAmt: +(q.regularMarketChange || 0).toFixed(2),
-                    name: q.shortName || sym,
-                    currency: q.currency || 'USD',
+                    change: +chgPct.toFixed(2),
+                    changeAmt: +chgAmt.toFixed(2),
+                    name: meta.shortName || meta.instrumentType || sym,
+                    currency: meta.currency || 'USD',
                     marketClosed: isClosed,
                 };
                 lsSet('price_' + sym, lp);
@@ -377,7 +386,7 @@ async function fetchLivePrice(sym) {
         }
     } catch (_) { }
 
-    // 2) Twelve Data relay (free, no key)
+    // 2) Twelve Data relay (free, no key required)
     try {
         const url = `${TD_BASE}/price?symbol=${sym}&format=JSON&outputsize=1`;
         const data = await fetchWithProxy(url, TTL_PRICE);
@@ -385,24 +394,6 @@ async function fetchLivePrice(sym) {
             const lp = {
                 price: +data.price,
                 previousClose: +data.price,
-                change: 0, changeAmt: 0,
-                name: sym, currency: 'USD',
-                marketClosed: true,
-            };
-            lsSet('price_' + sym, lp);
-            return lp;
-        }
-    } catch (_) { }
-
-    // 3) FMP relay (free tier)
-    try {
-        const url = `${FMP_BASE}/quote-short/${sym}?apikey=demo`;
-        const data = await fetchWithProxy(url, TTL_PRICE);
-        const q = Array.isArray(data) ? data[0] : null;
-        if (q?.price) {
-            const lp = {
-                price: q.price,
-                previousClose: q.price,
                 change: 0, changeAmt: 0,
                 name: sym, currency: 'USD',
                 marketClosed: true,
