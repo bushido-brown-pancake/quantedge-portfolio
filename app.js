@@ -110,14 +110,32 @@ function notify(msg, type = 'success') {
 // =============================================
 function buildTickerTape() {
     const inner = document.getElementById('tickerInner');
+    // Build the tape once with data-sym attributes for in-place updates
     const items = [...STOCKS_DB, ...STOCKS_DB];
     inner.innerHTML = items.map(s => `
-    <span class="tick-item">
+    <span class="tick-item" data-tape-sym="${s.sym}">
       <span class="tick-sym">${s.sym}</span>
       <span class="tick-price">$${s.price.toFixed(2)}</span>
       <span class="tick-chg ${s.change >= 0 ? 'pos' : 'neg'}">${s.change >= 0 ? '+' : ''}${s.change}%</span>
     </span>
   `).join('');
+}
+
+// Update prices in-place without rebuilding the DOM (keeps animation fluid)
+function updateTickerTape() {
+    const inner = document.getElementById('tickerInner');
+    if (!inner) return;
+    STOCKS_DB.forEach(s => {
+        inner.querySelectorAll(`[data-tape-sym="${s.sym}"]`).forEach(el => {
+            const priceEl = el.querySelector('.tick-price');
+            const chgEl = el.querySelector('.tick-chg');
+            if (priceEl) priceEl.textContent = '$' + s.price.toFixed(2);
+            if (chgEl) {
+                chgEl.textContent = (s.change >= 0 ? '+' : '') + s.change + '%';
+                chgEl.className = 'tick-chg ' + (s.change >= 0 ? 'pos' : 'neg');
+            }
+        });
+    });
 }
 
 function updateLivePrices() {
@@ -126,7 +144,7 @@ function updateLivePrices() {
         s.change = +(Math.random() * 6 - 3).toFixed(2);
         s.price = +s.price.toFixed(2);
     });
-    buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
+    updateTickerTape(); renderTopMetrics(); renderPortfolioTable();
 }
 
 // =============================================
@@ -347,7 +365,7 @@ async function refreshLivePrices() {
 }
 
 function applyLivePrices() {
-    buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
+    updateTickerTape(); renderTopMetrics(); renderPortfolioTable();
 }
 
 // ── Single symbol price — chart endpoint (no auth) + Twelve Data fallback ─────
