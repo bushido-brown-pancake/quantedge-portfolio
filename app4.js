@@ -175,10 +175,12 @@ function setupCompSearch(side) {
         else { drop.innerHTML = `<div class="search-loading"><div class="spinner"></div> Searching…</div>`; drop.classList.add('show'); }
 
         compState[side].searchTimer = setTimeout(async () => {
-            try {
-                const results = await yfSearch(q);
-                if (results.length > 0) { renderCompDrop(results, drop, side); return; }
-            } catch (_) { }
+            let results = [];
+            try { results = await yfSearch(q); } catch (_) { }
+            if (results.length === 0) {
+                try { results = await tdSearch(q); } catch (_) { }
+            }
+            if (results.length > 0) { renderCompDrop(results, drop, side); return; }
             if (local.length === 0) {
                 drop.innerHTML = `<div class="search-item" style="color:var(--text3);font-size:12px">No results for "<b style="color:var(--text)">${escapeHtml(q)}</b>"</div>`;
             }

@@ -1,13 +1,15 @@
 // =============================================
-// SEARCH — debounced, with YF + local fallback
+// SEARCH — debounced, with YF + TD fallback + auto-refresh
 // =============================================
 let searchTimer = null;
+let searchRefreshTimer = null;  // periodic price refresh for open dropdown
+let _lastSearchResults = [];   // remember last results for auto-refresh
 
 document.getElementById('stockSearch').addEventListener('input', function () {
     const q = this.value.trim();
     const dd = document.getElementById('searchDropdown');
     clearTimeout(searchTimer);
-    if (q.length < 1) { dd.classList.remove('show'); return; }
+    if (q.length < 1) { dd.classList.remove('show'); stopSearchRefresh(); return; }
 
     const localMatches = STOCKS_DB.filter(s =>
         s.sym.toLowerCase().includes(q.toLowerCase()) ||
@@ -18,15 +20,24 @@ document.getElementById('stockSearch').addEventListener('input', function () {
             symbol: s.sym, shortname: s.name, exchDisp: 'NYSE/NASDAQ', quoteType: 'EQUITY'
         })), dd, 'local');
     } else {
-        dd.innerHTML = `<div class="search-loading"><div class="spinner"></div> Searching Yahoo Finance...</div>`;
+        dd.innerHTML = `<div class="search-loading"><div class="spinner"></div> Searching...</div>`;
         dd.classList.add('show');
     }
 
     searchTimer = setTimeout(async () => {
-        try {
-            const results = await yfSearch(q);
-            if (results.length > 0) { renderSearchResults(results, dd, 'yf'); return; }
-        } catch (_) { }
+        // 1) Try Yahoo Finance
+        let results = [];
+        try { results = await yfSearch(q); } catch (_) { }
+
+        // 2) Fallback to Twelve Data
+        if (results.length === 0) {
+            try { results = await tdSearch(q); } catch (_) { }
+        }
+
+        if (results.length > 0) {
+            renderSearchResults(results, dd, 'yf');
+            return;
+        }
         if (localMatches.length === 0) {
             dd.innerHTML = `<div class="search-item" style="color:var(--text3);justify-content:center;font-size:12px">
         No results for "<b style="color:var(--text)">${escapeHtml(q)}</b>"
@@ -36,14 +47,14 @@ document.getElementById('stockSearch').addEventListener('input', function () {
 });
 
 function renderSearchResults(results, dd, source = 'yf') {
+    _lastSearchResults = results;  // save for auto-refresh
     const badges = {
-        yf: `<div style="padding:6px 14px;font-size:9px;color:var(--teal);letter-spacing:1.2px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulse 1.5s infinite"></span> YAHOO FINANCE LIVE</div>`,
+        yf: `<div style="padding:6px 14px;font-size:9px;color:var(--teal);letter-spacing:1.2px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulse 1.5s infinite"></span> LIVE DATA</div>`,
         local: `<div style="padding:6px 14px;font-size:9px;color:var(--text3);letter-spacing:1.2px;border-bottom:1px solid var(--border)">LOCAL DATABASE</div>`,
     };
     const top10 = results.slice(0, 10);
     dd.innerHTML = (badges[source] || '') + top10.map(r => {
         const local = STOCKS_DB.find(s => s.sym === r.symbol);
-        // Sanitize single quotes for onclick attribute safety
         const safeSym = (r.symbol || '').replace(/'/g, '&#39;');
         const safeName = escapeHtml(r.shortname || r.longname || '').replace(/'/g, '&#39;');
         const priceHtml = local
@@ -64,53 +75,108 @@ function renderSearchResults(results, dd, source = 'yf') {
     </div>`;
     }).join('');
     dd.classList.add('show');
+    // Fetch prices for stocks not in local DB
     const needsFetch = top10.filter(r => !STOCKS_DB.find(s => s.sym === r.symbol));
     if (needsFetch.length > 0) fetchBatchPrices(needsFetch.map(r => r.symbol), dd);
-    if (source === 'yf') {
-        const hasLocal = top10.filter(r => STOCKS_DB.find(s => s.sym === r.symbol));
-        if (hasLocal.length > 0) fetchBatchPrices(hasLocal.map(r => r.symbol), dd, true);
-    }
+    // Always refresh local-DB prices too (they may be stale)
+    const hasLocal = top10.filter(r => STOCKS_DB.find(s => s.sym === r.symbol));
+    if (hasLocal.length > 0) fetchBatchPrices(hasLocal.map(r => r.symbol), dd, true);
+
+    startSearchRefresh();  // begin periodic auto-refresh
+}
+
+// Auto-refresh prices in the open dropdown every 30 seconds
+function startSearchRefresh() {
+    stopSearchRefresh();
+    searchRefreshTimer = setInterval(() => {
+        const dd = document.getElementById('searchDropdown');
+        if (!dd.classList.contains('show') || _lastSearchResults.length === 0) { stopSearchRefresh(); return; }
+        // Invalidate price cache for visible symbols so fetchBatchPrices re-fetches
+        _lastSearchResults.slice(0, 10).forEach(r => {
+            try { localStorage.removeItem('qe5_price_' + r.symbol); } catch (_) { }
+        });
+        fetchBatchPrices(_lastSearchResults.slice(0, 10).map(r => r.symbol), dd, true);
+    }, 30000);
+}
+function stopSearchRefresh() {
+    clearInterval(searchRefreshTimer);
+    searchRefreshTimer = null;
 }
 
 async function fetchBatchPrices(symbols, dd, updateExisting = false) {
-    for (const sym of symbols) {
+    if (!symbols.length) return;
+
+    // ── Strategy 1: ONE batch Yahoo request for all symbols ───────────────────
+    try {
+        const url = `${YF_BASE2}/v7/finance/quote?symbols=${symbols.join(',')}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency,marketState`;
+        const data = await fetchWithProxy(url, TTL_PRICE);
+        const results = data?.quoteResponse?.result || [];
+        if (results.length > 0) {
+            results.forEach(q => applyPriceToCell(q.symbol, {
+                price: q.regularMarketPrice || q.regularMarketPreviousClose,
+                previousClose: q.regularMarketPreviousClose,
+                change: +(q.regularMarketChangePercent || 0).toFixed(2),
+                changeAmt: +(q.regularMarketChange || 0).toFixed(2),
+                name: q.shortName || q.symbol,
+                currency: q.currency || 'USD',
+                marketClosed: !q.regularMarketPrice || ['CLOSED', 'PRE', 'PREPRE', 'POST', 'POSTPOST'].includes(q.marketState),
+            }, dd, updateExisting));
+            // show OFFLINE for symbols that received no data
+            const found = new Set(results.map(q => q.symbol));
+            symbols.filter(s => !found.has(s)).forEach(s => showOffline(s, dd));
+            return;
+        }
+    } catch (_) { }
+
+    // ── Strategy 2: Individual relay calls (parallel) as fallback ─────────────
+    await Promise.all(symbols.map(async sym => {
         try {
             const data = await fetchLivePrice(sym);
-            const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
-            if (!data) {
-                // API failed (market closed or proxies blocked) — show fallback
-                if (cell) {
-                    cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text3);animation:fadeIn .3s ease">Market Closed</div>`;
-                }
-                continue;
-            }
-            let db = STOCKS_DB.find(s => s.sym === sym);
-            if (!db) {
-                db = { sym, name: data.name, sector: 'Unknown', price: data.price, change: data.change, color: colorForIndex(sym) };
-                STOCKS_DB.push(db);
-            } else if (updateExisting) {
-                db.price = data.price; db.change = data.change;
-            }
-            liveCache[sym] = { ...(liveCache[sym] || {}), ...data, sym };
-            if (cell) {
-                const cls = data.change >= 0 ? 'pos' : 'neg';
-                const sign = data.change >= 0 ? '+' : '';
-                cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text);animation:fadeIn .3s ease">${data.currency !== 'USD' ? data.currency + ' ' : '$'}${data.price.toFixed(2)}</div>
-        <div class="${cls}" style="font-size:10px;font-family:'Space Mono',monospace">${sign}${data.changeAmt.toFixed(2)} (${sign}${data.change}%)</div>`;
-            }
-        } catch (_) {
-            // On error, clear the spinner with fallback
-            const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
-            if (cell) {
-                cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text3)">Market Closed</div>`;
-            }
-        }
+            if (data && data.price) { applyPriceToCell(sym, data, dd, updateExisting); }
+            else { showOffline(sym, dd); }
+        } catch (_) { showOffline(sym, dd); }
+    }));
+}
+
+function applyPriceToCell(sym, data, dd, updateExisting) {
+    if (!data || !data.price) { showOffline(sym, dd); return; }
+    let db = STOCKS_DB.find(s => s.sym === sym);
+    if (!db) {
+        db = { sym, name: data.name || sym, sector: 'Unknown', price: data.price, change: data.change || 0, color: colorForIndex(sym) };
+        STOCKS_DB.push(db);
+    } else if (updateExisting) {
+        db.price = data.price; db.change = data.change || 0;
+    }
+    liveCache[sym] = { ...(liveCache[sym] || {}), ...data, sym };
+    lsSet('price_' + sym, data);
+    const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
+    if (!cell) return;
+    const cls = (data.change || 0) >= 0 ? 'pos' : 'neg';
+    const sign = (data.change || 0) >= 0 ? '+' : '';
+    const prefix = data.currency && data.currency !== 'USD' ? data.currency + ' ' : '$';
+    const changeRow = data.marketClosed
+        ? `<div style="font-size:9px;color:var(--text3);letter-spacing:.5px">LAST CLOSE</div>`
+        : `<div class="${cls}" style="font-size:10px;font-family:'Space Mono',monospace">${sign}${(data.changeAmt || 0).toFixed(2)} (${sign}${(data.change || 0).toFixed(2)}%)</div>`;
+    cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text);animation:fadeIn .3s ease">${prefix}${data.price.toFixed(2)}</div>${changeRow}`;
+}
+
+function showOffline(sym, dd) {
+    const cell = dd.querySelector(`.res-price[data-sym="${sym}"]`);
+    if (!cell) return;
+    const fallback = STOCKS_DB.find(s => s.sym === sym);
+    if (fallback) {
+        cell.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text)">$${fallback.price.toFixed(2)}</div><div style="font-size:9px;color:var(--text3);letter-spacing:.5px">OFFLINE</div>`;
+    } else {
+        cell.innerHTML = `<div style="font-size:10px;color:var(--text3)">—</div>`;
     }
 }
 
 
 document.addEventListener('click', e => {
-    if (!e.target.closest('.search-wrap')) document.getElementById('searchDropdown').classList.remove('show');
+    if (!e.target.closest('.search-wrap')) {
+        document.getElementById('searchDropdown').classList.remove('show');
+        stopSearchRefresh();
+    }
 });
 function openAddFromSearch() { document.getElementById('stockSearch').focus(); }
 

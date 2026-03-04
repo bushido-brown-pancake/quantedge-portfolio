@@ -230,12 +230,17 @@ function clearOldCache() {
 }
 
 // =============================================
-// YAHOO FINANCE API — FAST
+// FINANCE APIs — Yahoo Finance primary + relays
 // =============================================
 const YF_BASE = 'https://query1.finance.yahoo.com';
 const YF_BASE2 = 'https://query2.finance.yahoo.com';
 
-// Three proxies — we race them, fastest wins
+// Twelve Data — free tier, no key needed for basic quote
+const TD_BASE = 'https://api.twelvedata.com';
+// Financialmodelingprep free (no key for basic quote)
+const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
+
+// CORS proxies — we try the last-working one first
 const CORS_PROXIES = [
     url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -339,31 +344,97 @@ function applyLivePrices() {
     buildTickerTape(); renderTopMetrics(); renderPortfolioTable();
 }
 
-// ── Single symbol price (comparison / search) ────────────────────────────────
+// ── Single symbol price — Yahoo first, then relay APIs ───────────────────────
 async function fetchLivePrice(sym) {
     const cached = lsGet('price_' + sym, TTL_PRICE);
     if (cached) return cached;
-    // Add regularMarketPreviousClose as a fallback for when the market is closed
-    const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency`;
+
+    // 1) Yahoo Finance (via proxy)
     try {
+        const url = `${YF_BASE2}/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketChange,shortName,currency,marketState`;
         const data = await fetchWithProxy(url, TTL_PRICE);
         const q = data?.quoteResponse?.result?.[0];
         if (q) {
-            // Use previous close if regular market price is unavailable (e.g., market is closed)
-            const resolvedPrice = q.regularMarketPrice || q.regularMarketPreviousClose;
-            const lp = { price: resolvedPrice, change: +(q.regularMarketChangePercent || 0).toFixed(2), changeAmt: +(q.regularMarketChange || 0).toFixed(2), name: q.shortName || sym, currency: q.currency || 'USD' };
+            const liveP = q.regularMarketPrice;
+            const prevClose = q.regularMarketPreviousClose;
+            const isClosed = !liveP || q.marketState === 'CLOSED' || q.marketState === 'PRE' || q.marketState === 'PREPRE' || q.marketState === 'POST' || q.marketState === 'POSTPOST';
+            const resolvedPrice = liveP || prevClose;
+            if (resolvedPrice) {
+                const lp = {
+                    price: resolvedPrice,
+                    previousClose: prevClose || resolvedPrice,
+                    change: +(q.regularMarketChangePercent || 0).toFixed(2),
+                    changeAmt: +(q.regularMarketChange || 0).toFixed(2),
+                    name: q.shortName || sym,
+                    currency: q.currency || 'USD',
+                    marketClosed: isClosed,
+                };
+                lsSet('price_' + sym, lp);
+                return lp;
+            }
+        }
+    } catch (_) { }
+
+    // 2) Twelve Data relay (free, no key)
+    try {
+        const url = `${TD_BASE}/price?symbol=${sym}&format=JSON&outputsize=1`;
+        const data = await fetchWithProxy(url, TTL_PRICE);
+        if (data?.price) {
+            const lp = {
+                price: +data.price,
+                previousClose: +data.price,
+                change: 0, changeAmt: 0,
+                name: sym, currency: 'USD',
+                marketClosed: true,
+            };
             lsSet('price_' + sym, lp);
             return lp;
         }
     } catch (_) { }
+
+    // 3) FMP relay (free tier)
+    try {
+        const url = `${FMP_BASE}/quote-short/${sym}?apikey=demo`;
+        const data = await fetchWithProxy(url, TTL_PRICE);
+        const q = Array.isArray(data) ? data[0] : null;
+        if (q?.price) {
+            const lp = {
+                price: q.price,
+                previousClose: q.price,
+                change: 0, changeAmt: 0,
+                name: sym, currency: 'USD',
+                marketClosed: true,
+            };
+            lsSet('price_' + sym, lp);
+            return lp;
+        }
+    } catch (_) { }
+
     return null;
 }
 
-// ── Search ───────────────────────────────────────────────────────────────────
+// ── Search — Yahoo first, Twelve Data as fallback ────────────────────────────
 async function yfSearch(query) {
     const url = `${YF_BASE}/v1/finance/search?q=${encodeURIComponent(query)}&lang=en-US&region=US&quotesCount=15&newsCount=0&enableFuzzyQuery=true`;
     const data = await fetchWithProxy(url, 60 * 1000);
     return (data.quotes || []).filter(q => ['EQUITY', 'ETF', 'MUTUALFUND'].includes(q.quoteType));
+}
+
+// Fallback search via Twelve Data autocomplete (free)
+async function tdSearch(query) {
+    try {
+        const url = `${TD_BASE}/symbol_search?symbol=${encodeURIComponent(query)}&outputsize=10`;
+        const data = await fetchWithProxy(url, 60 * 1000);
+        const items = data?.data || [];
+        return items
+            .filter(i => ['Common Stock', 'ETF'].includes(i.instrument_type))
+            .map(i => ({
+                symbol: i.symbol,
+                shortname: i.instrument_name,
+                exchDisp: i.exchange,
+                quoteType: i.instrument_type === 'ETF' ? 'ETF' : 'EQUITY',
+            }));
+    } catch (_) { return []; }
 }
 
 // ── Chart data ───────────────────────────────────────────────────────────────
