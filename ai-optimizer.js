@@ -445,14 +445,15 @@ Retourne le JSON d'analyse.`;
     };
 
     function injectPanel() {
-        const analysisTab = document.getElementById('tab-analysis');
-        if (!analysisTab || document.getElementById('aio-panel')) return;
+        if (document.getElementById('aio-panel')) return;
+        const host = document.getElementById('aio-tab-host') || document.getElementById('tab-analysis');
+        if (!host) return;
 
         const panel = document.createElement('div');
         panel.id = 'aio-panel';
         panel.className = 'aio-panel';
         panel.innerHTML = buildPanelHTML();
-        analysisTab.appendChild(panel);
+        host.appendChild(panel);
         bindEvents();
     }
 

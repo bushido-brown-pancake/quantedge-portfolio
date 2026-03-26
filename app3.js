@@ -484,7 +484,7 @@ function renderComparison() {
 // TABS
 // =============================================
 function switchTab(tab) {
-    const tabs = ['holdings', 'overview', 'analysis', 'financials', 'comparison', 'news'];
+    const tabs = ['holdings', 'overview', 'analysis', 'financials', 'comparison', 'news', 'simulation', 'optimizer'];
     document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', tabs[i] === tab));
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.getElementById('tab-' + tab).classList.add('active');
@@ -494,6 +494,7 @@ function switchTab(tab) {
         if (tab === 'financials') { renderFinancials(state.finTab); renderRevIncomeChart(); renderMarginsChart(); }
         if (tab === 'comparison') { renderComparisonChart(); updateStockComparison(); }
         if (tab === 'holdings') { renderProjectionChart(); }
+        if (tab === 'simulation') { if (typeof runSimulation === 'function') runSimulation(); }
     }, 50);
 }
 
