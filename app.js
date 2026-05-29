@@ -500,9 +500,17 @@ const YF_BASE2 = 'https://query2.finance.yahoo.com';
 // Twelve Data — free tier, no key needed for basic quote
 const TD_BASE = 'https://api.twelvedata.com';
 
-// Detect if we're running via our local Express server (not file:// or GH Pages)
-const IS_LOCAL_SERVER = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-const LOCAL_API = IS_LOCAL_SERVER ? `http://${location.host}` : null;
+// Detect if we're running via our Express server (works on localhost AND cloud deployments like Render)
+// If served by Express, we can use relative API paths (/api/...) — no need for CORS proxies
+const IS_LOCAL_SERVER = (() => {
+    // localhost / 127.0.0.1 = definitely our server
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return true;
+    // Cloud deployments (Render, Railway, etc.) — detect by trying a known endpoint
+    // If the page is served by our Express server, relative paths will work
+    if (location.protocol === 'https:' && !location.hostname.includes('github.io')) return true;
+    return false;
+})();
+const LOCAL_API = IS_LOCAL_SERVER ? '' : null; // empty string = relative path (same origin)
 
 // CORS proxies — ALL raced simultaneously via Promise.any() (fallback for GH Pages)
 const CORS_PROXIES = [

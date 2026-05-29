@@ -463,8 +463,7 @@ ${portfolioData.tickers.map((t, i) => {
 Retourne le JSON d'analyse.`;
 
         try {
-            const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-            const proxyUrl = IS_LOCAL ? `http://${location.host}${AIO_PROXY}` : AIO_PROXY;
+            const proxyUrl = AIO_PROXY; // relative path works on both localhost and cloud
             const res = await fetch(proxyUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
