@@ -1,0 +1,14 @@
+fastapi>=0.109
+uvicorn[standard]>=0.27
+pydantic>=2.6
+# numpy < 2 pour compatibilité avec torch (évite l'erreur "_ARRAY_API not found")
+numpy>=1.26,<2.0
+
+# Deep learning — LSTM volatilité (~800 Mo au téléchargement).
+# Si ton Mac n'a pas la place, commente cette ligne : le service repasse
+# automatiquement sur la volatilité EWMA (RiskMetrics λ=0.94).
+torch>=2.1
+
+# NLP sentiment financier — FinBERT (~440 Mo au premier appel, cache local).
+# Commente si tu veux rester sur le lexique pur.
+transformers>=4.38

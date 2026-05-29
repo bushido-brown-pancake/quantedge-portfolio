@@ -25,17 +25,23 @@ document.getElementById('stockSearch').addEventListener('input', function () {
     }
 
     searchTimer = setTimeout(async () => {
-        // 1) Try Yahoo Finance
+        // 0) Try Refinitiv RDP
         let results = [];
-        try { results = await yfSearch(q); } catch (_) { }
+        try { results = await rdpSearch(q); } catch (_) { }
+
+        // 1) Try Yahoo Finance
+        if (!results || results.length === 0) {
+            try { results = await yfSearch(q); } catch (_) { }
+        }
 
         // 2) Fallback to Twelve Data
-        if (results.length === 0) {
+        if (!results || results.length === 0) {
             try { results = await tdSearch(q); } catch (_) { }
         }
 
-        if (results.length > 0) {
-            renderSearchResults(results, dd, 'yf');
+        if (results && results.length > 0) {
+            const src = results[0]._isRdp ? 'rdp' : 'yf';
+            renderSearchResults(results, dd, src);
             return;
         }
         if (localMatches.length === 0) {
@@ -49,6 +55,7 @@ document.getElementById('stockSearch').addEventListener('input', function () {
 function renderSearchResults(results, dd, source = 'yf') {
     _lastSearchResults = results;  // save for auto-refresh
     const badges = {
+        rdp: `<div style="padding:6px 14px;font-size:9px;color:#3399ff;letter-spacing:1.2px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:50%;background:#3399ff;display:inline-block;animation:pulse 1.5s infinite"></span> REFINITIV RDP</div>`,
         yf: `<div style="padding:6px 14px;font-size:9px;color:var(--teal);letter-spacing:1.2px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulse 1.5s infinite"></span> LIVE DATA</div>`,
         local: `<div style="padding:6px 14px;font-size:9px;color:var(--text3);letter-spacing:1.2px;border-bottom:1px solid var(--border)">LOCAL DATABASE</div>`,
     };
@@ -192,28 +199,60 @@ async function openStockModal(sym, name) {
     document.getElementById('addModal').classList.add('show');
     updateModalTotal();
     try {
-        const [quoteData, summaryData] = await Promise.all([yfQuote(sym), yfSummary(sym)]);
-        const meta = quoteData?.meta || {};
-        const price = meta.regularMarketPrice || 0;
-        const prevClose = meta.previousClose || meta.chartPreviousClose || price;
-        const chgAmt = price - prevClose;
-        const chgPct = prevClose ? (chgAmt / prevClose * 100) : 0;
+        // ── Phase 1 : RDP PRIMARY ────────────────────────────────────────────
+        const rdpFetch = url => fetch(url, { signal: AbortSignal.timeout(6000) })
+            .then(r => r.ok ? r.json() : null).catch(() => null);
+
+        const [rdpQuote, rdpFund, rdpHist] = await Promise.all([
+            rdpFetch(`/api/rdp/quote/${encodeURIComponent(sym)}`),
+            rdpFetch(`/api/rdp/fundamentals/${encodeURIComponent(sym)}`),
+            typeof rdpHistory === 'function' ? rdpHistory(sym) : Promise.resolve(null),
+        ]);
+
+        const rdpPriceOk = rdpQuote && !rdpQuote.error && (rdpQuote.last || rdpQuote.close);
+        const rdpHistOk  = rdpHist?.closes?.length > 10;
+
+        // ── Phase 2 : YF FALLBACK — uniquement si RDP manque ────────────────
+        // yfSummary via serveur (crumb-based, plus fiable) pour secteur/industrie/ratios
+        const [yfQuoteData, summaryData] = await Promise.all([
+            !rdpPriceOk || !rdpHistOk ? yfQuote(sym) : Promise.resolve(null),
+            fetch(`/api/yfsummary/${encodeURIComponent(sym)}`, { signal: AbortSignal.timeout(10000) })
+                .then(r => r.ok ? r.json() : null).catch(() => null)
+                .then(d => d?.error ? null : d),
+        ]);
+
+        // ── Résolution finale : RDP en priorité, YF en backup ───────────────
+        const price    = rdpPriceOk
+            ? (rdpQuote.last || rdpQuote.close)
+            : (yfQuoteData?.meta?.regularMarketPrice || 0);
+        const prevClose = rdpPriceOk
+            ? (rdpQuote.close || price)
+            : (yfQuoteData?.meta?.previousClose || yfQuoteData?.meta?.chartPreviousClose || price);
+        const chgAmt   = rdpPriceOk ? (rdpQuote.change ?? (price - prevClose))  : (price - prevClose);
+        const chgPct   = rdpPriceOk ? (rdpQuote.changePct ?? 0) : (prevClose ? (chgAmt / prevClose * 100) : 0);
+        const currency = rdpPriceOk ? (rdpQuote.currency || 'USD') : (yfQuoteData?.meta?.currency || 'USD');
+        const closes     = rdpHistOk ? rdpHist.closes     : (yfQuoteData?.closes     || []);
+        const timestamps = rdpHistOk ? rdpHist.timestamps : (yfQuoteData?.timestamps || []);
+        const source     = rdpPriceOk ? 'rdp' : 'yf';
+
         const entry = {
-            sym, name: summaryData?.price?.shortName || name,
+            sym, name: rdpQuote?.name || summaryData?.price?.shortName || name,
             price, change: +chgPct.toFixed(2), changeAmt: +chgAmt.toFixed(2),
             color: colorForIndex(sym), sector: summaryData?.assetProfile?.sector || 'Unknown',
-            industry: summaryData?.assetProfile?.industry || '', currency: meta.currency || 'USD',
-            closes: quoteData?.closes || [], timestamps: quoteData?.timestamps || [], summary: summaryData,
+            industry: summaryData?.assetProfile?.industry || '', currency,
+            closes, timestamps, summary: summaryData,
+            rdpFundamentals: rdpFund?.error ? null : rdpFund,
+            _source: source,
         };
         liveCache[sym] = entry; state.modalStock = entry;
         document.getElementById('modalCost').value = price ? price.toFixed(2) : '';
-        document.getElementById('modalYFData').innerHTML = renderModalFundamentals(entry, summaryData);
-        drawSparkline(quoteData?.closes || []);
-        notify(`✓ ${sym} loaded`, 'success');
+        document.getElementById('modalYFData').innerHTML = renderModalFundamentals(entry, summaryData, rdpFund);
+        drawSparkline(closes);
+        notify(`✓ ${sym} chargé via ${source === 'rdp' ? 'Refinitiv RDP' : 'Yahoo Finance'}`, 'success');
     } catch (e) {
         const local = STOCKS_DB.find(s => s.sym === sym);
         if (local) { state.modalStock = { ...local }; document.getElementById('modalCost').value = local.price.toFixed(2); }
-        document.getElementById('modalYFData').innerHTML = `<div style="color:var(--text3);font-size:11px;padding:8px 0">⚠ Using local data (Yahoo Finance unavailable)</div>`;
+        document.getElementById('modalYFData').innerHTML = `<div style="color:var(--text3);font-size:11px;padding:8px 0">⚠ Données locales (RDP + Yahoo Finance indisponibles)</div>`;
     }
 }
 
@@ -230,30 +269,59 @@ function renderModalSkeleton(knownPrice = null, cached = null) {
     <canvas id="sparklineCanvas" height="50" style="margin-top:10px;width:100%;border-radius:6px;${knownPrice ? '' : 'opacity:.2'}"></canvas></div>`;
 }
 
-function renderModalFundamentals(entry, s) {
-    if (!s) return '';
-    const fd = s.financialData || {}, kv = s.defaultKeyStatistics || {}, sd = s.summaryDetail || {};
-    const fmt = (v, pre = '', suf = '') => v?.raw != null ? `${pre}${Number(v.raw).toLocaleString(undefined, { maximumFractionDigits: 2 })}${suf}` : (v?.fmt || '—');
+function renderModalFundamentals(entry, s, rdp) {
+    const fd = s?.financialData || {}, kv = s?.defaultKeyStatistics || {}, sd = s?.summaryDetail || {};
+    const fmt  = (v, pre = '', suf = '') => v?.raw != null ? `${pre}${Number(v.raw).toLocaleString(undefined, { maximumFractionDigits: 2 })}${suf}` : (v?.fmt || '—');
     const fmtB = v => v?.raw != null ? `$${(v.raw / 1e9).toFixed(2)}B` : '—';
+    const fmtN = (v, suf = '') => v != null && isFinite(v) ? `${(+v).toFixed(2)}${suf}` : '—';
+    const hasRdp = rdp && !rdp.error;
+
+    // Merge: prefer RDP when available (institutional-grade data)
+    const pe       = hasRdp && rdp.peRatio    != null ? fmtN(rdp.peRatio, 'x')    : fmt(kv.trailingPE, '', 'x');
+    const pb       = hasRdp && rdp.pbRatio    != null ? fmtN(rdp.pbRatio, 'x')    : fmt(kv.priceToBook, '', 'x');
+    const roe      = hasRdp && rdp.roe        != null ? fmtN(rdp.roe, '%')         : (fd.returnOnEquity?.raw != null ? (fd.returnOnEquity.raw * 100).toFixed(1) + '%' : '—');
+    const netMarg  = hasRdp && rdp.netMargin  != null ? fmtN(rdp.netMargin, '%')   : (fd.profitMargins?.raw  != null ? (fd.profitMargins.raw  * 100).toFixed(1) + '%' : '—');
+    const de       = hasRdp && rdp.debtToEquity != null ? fmtN(rdp.debtToEquity, 'x') : fmt(fd.debtToEquity, '', 'x');
+    const beta     = hasRdp && rdp.beta        != null ? fmtN(rdp.beta)            : fmt(sd.beta);
+    const w52h     = hasRdp && rdp.week52High  != null ? fmtN(rdp.week52High, '')  : fmt(sd.fiftyTwoWeekHigh, '$');
+    const w52l     = hasRdp && rdp.week52Low   != null ? fmtN(rdp.week52Low, '')   : fmt(sd.fiftyTwoWeekLow,  '$');
+    const divYield = hasRdp && rdp.dividendYield != null ? fmtN(rdp.dividendYield, '%') : (sd.dividendYield?.raw != null ? (sd.dividendYield.raw * 100).toFixed(2) + '%' : 'None');
+    const mktCap   = hasRdp && rdp.marketCap  != null ? `$${(rdp.marketCap / 1e9).toFixed(2)}B` : fmtB(s?.price?.marketCap);
+    const eps      = hasRdp && rdp.eps        != null ? fmtN(rdp.eps, '')          : fmt(kv.trailingEps, '$');
+
     const rows = [
-        ['Market Cap', fmtB(s.price?.marketCap)], ['P/E Ratio', fmt(kv.trailingPE, '', 'x')], ['Forward P/E', fmt(kv.forwardPE, '', 'x')],
-        ['EPS (TTM)', fmt(kv.trailingEps, '$')], ['Revenue (TTM)', fmtB(fd.totalRevenue)],
-        ['Net Margin', fd.profitMargins?.raw != null ? (fd.profitMargins.raw * 100).toFixed(1) + '%' : '—'],
-        ['ROE', fd.returnOnEquity?.raw != null ? (fd.returnOnEquity.raw * 100).toFixed(1) + '%' : '—'],
-        ['Debt/Equity', fmt(fd.debtToEquity, '', 'x')], ['Free Cash Flow', fmtB(fd.freeCashflow)],
-        ['52W High', fmt(sd.fiftyTwoWeekHigh, '$')], ['52W Low', fmt(sd.fiftyTwoWeekLow, '$')],
-        ['Dividend Yield', sd.dividendYield?.raw != null ? (sd.dividendYield.raw * 100).toFixed(2) + '%' : 'None'],
-        ['Beta', fmt(sd.beta)], ['Volume', sd.volume?.raw != null ? Number(sd.volume.raw).toLocaleString() : '—'],
+        ['Market Cap',  mktCap,  false],
+        ['P/E Ratio',   pe,      hasRdp && rdp.peRatio != null],
+        ['P/B Ratio',   pb,      hasRdp && rdp.pbRatio != null],
+        ['EV/EBITDA',   hasRdp && rdp.evEbitda  != null ? fmtN(rdp.evEbitda, 'x')  : fmt(kv.enterpriseToEbitda, '', 'x'), hasRdp && rdp.evEbitda != null],
+        ['EPS (TTM)',   eps,     hasRdp && rdp.eps != null],
+        ['Revenue',     hasRdp && rdp.revenue   != null ? `$${(rdp.revenue / 1e9).toFixed(2)}B` : fmtB(fd.totalRevenue), false],
+        ['Net Margin',  netMarg, hasRdp && rdp.netMargin != null],
+        ['Oper. Margin',hasRdp && rdp.operatingMargin != null ? fmtN(rdp.operatingMargin, '%') : (fd.operatingMargins?.raw != null ? (fd.operatingMargins.raw * 100).toFixed(1) + '%' : '—'), hasRdp && rdp.operatingMargin != null],
+        ['ROE',         roe,     hasRdp && rdp.roe != null],
+        ['ROA',         hasRdp && rdp.roa != null ? fmtN(rdp.roa, '%') : '—', hasRdp && rdp.roa != null],
+        ['Debt/Equity', de,      hasRdp && rdp.debtToEquity != null],
+        ['Current Ratio', hasRdp && rdp.currentRatio != null ? fmtN(rdp.currentRatio, 'x') : '—', hasRdp && rdp.currentRatio != null],
+        ['Div. Yield',  divYield, false],
+        ['52W High',    w52h,    false],
+        ['52W Low',     w52l,    false],
+        ['Beta',        beta,    false],
     ];
+
+    const rdpBadge = hasRdp
+        ? `<div style="display:inline-flex;align-items:center;gap:4px;background:#3399ff18;border:1px solid #3399ff40;border-radius:4px;padding:2px 7px;font-size:9px;color:#3399ff;letter-spacing:.8px;margin-bottom:6px"><span style="width:5px;height:5px;border-radius:50%;background:#3399ff;animation:pulse 1.5s infinite;display:inline-block"></span>REFINITIV RDP</div>`
+        : '';
+
     return `<div style="margin:10px 0 6px">
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
       <span style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--text)">${entry.price ? '$' + entry.price.toFixed(2) : '—'}</span>
       <span class="${entry.change >= 0 ? 'pos' : 'neg'}" style="font-family:'Space Mono',monospace;font-size:13px">${entry.change >= 0 ? '+' : ''}${entry.changeAmt?.toFixed(2)} (${entry.change >= 0 ? '+' : ''}${entry.change}%)</span>
       <span style="font-size:10px;color:var(--text3)">${entry.currency || ''}</span></div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${escapeHtml(entry.sector)}${entry.industry ? ' · ' + escapeHtml(entry.industry) : ''}</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${escapeHtml(entry.sector)}${entry.industry ? ' · ' + escapeHtml(entry.industry) : ''}</div>
+    ${rdpBadge}
     <canvas id="sparklineCanvas" height="50" style="width:100%;margin-bottom:10px;border-radius:6px"></canvas>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-      ${rows.map(([l, v]) => `<div style="display:flex;justify-content:space-between;padding:5px 8px;background:var(--bg);border-radius:5px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">${l}</span><span style="font-size:10px;font-family:'Space Mono',monospace;color:var(--text)">${v}</span></div>`).join('')}
+      ${rows.map(([l, v, isRdp]) => `<div style="display:flex;justify-content:space-between;padding:5px 8px;background:var(--bg);border-radius:5px;border:1px solid ${isRdp ? '#3399ff30' : 'var(--border)'}"><span style="font-size:10px;color:var(--text3)">${l}</span><span style="font-size:10px;font-family:'Space Mono',monospace;color:${isRdp ? '#3399ff' : 'var(--text)'}${v === '—' ? ';opacity:.4' : ''}">${v}</span></div>`).join('')}
     </div></div>`;
 }
 

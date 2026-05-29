@@ -5,7 +5,16 @@
 (function () {
     'use strict';
 
-    const RF = 0.04; // risk-free rate 4%
+    // Risk-free rate — dynamique si hydraté par FRED (DGS10), sinon 4%.
+    // Lu à chaque appel pour refléter le dernier taux FRED.
+    function rfDecimal() {
+        if (typeof window !== 'undefined' && window.macroState && window.macroState.riskFreeSource === 'fred') {
+            return window.macroState.riskFreeRate / 100;
+        }
+        return 0.04;
+    }
+    // valueOf permet l'usage arithmétique direct (`RF / 252`, `RF * 100`, etc.)
+    const RF = { valueOf() { return rfDecimal(); } };
     const AIO_PROXY = '/api/claude';
 
     // ── Matrix Utilities ──────────────────────────────────────────
@@ -237,7 +246,9 @@
     }
 
     // ── Portfolio Metrics ─────────────────────────────────────────
-    function portfolioMetrics(w, cov, mu) {
+    // allCloses (optional): array[nAssets] of daily close series — when provided,
+    // we compute REAL historical max drawdown instead of the old vol×1.5 heuristic.
+    function portfolioMetrics(w, cov, mu, allCloses) {
         const Sw = matVecMul(cov, w);
         const portVar = vecDot(w, Sw);
         const dailyVol = Math.sqrt(Math.max(portVar, 0));
@@ -245,12 +256,30 @@
         const dailyRet = vecDot(w, mu);
         const ret = dailyRet * 252;
         const sharpe = vol > 0 ? (ret - RF) / vol : 0;
-        const maxDD = vol * Math.sqrt(1) * 1.5;
+
+        // Real max drawdown from historical equity curve when closes are available
+        // and QE engine is loaded; otherwise fall back to the (crude) heuristic.
+        let maxDD;
+        let ddDurationDays = null;
+        if (allCloses && allCloses.length === w.length && typeof window !== 'undefined' && window.QE) {
+            try {
+                // QE.portfolioEquityCurve expects array-of-arrays + array-of-weights
+                const equity = window.QE.portfolioEquityCurve(allCloses, w, 100);
+                const dd = window.QE.maxDrawdown(equity);
+                maxDD = Math.abs(dd.maxDrawdown || 0);
+                ddDurationDays = dd.durationDays || null;
+            } catch (_) {
+                maxDD = vol * 1.5; // fallback
+            }
+        } else {
+            maxDD = vol * 1.5; // legacy heuristic
+        }
+
         const rc = w.map((wi, i) => wi * Sw[i] / (dailyVol || 1));
         const wVol = w.map((wi, i) => Math.sqrt(Math.max(cov[i][i], 0)));
         const sumWVol = vecDot(w.map(Math.abs), wVol);
         const divRatio = sumWVol / (dailyVol || 1);
-        return { ret, vol, sharpe, maxDD, rc, divRatio };
+        return { ret, vol, sharpe, maxDD, ddDurationDays, rc, divRatio };
     }
 
     // ── Ensemble Aggregation ──────────────────────────────────────
@@ -333,7 +362,43 @@
     }
 
     // ── DOM Readers ───────────────────────────────────────────────
+    // Source toggle: 'manual' = user portfolio, 'ai-builder' = AI Builder selection
+    let aioSource = 'manual';
+
+    function readAIBuilderData() {
+        const ab = window.__aiBuilderPortfolio;
+        if (!ab || !ab.stocks?.length) return null;
+        const tickers = ab.stocks.map(s => s.sym);
+        const prices = ab.stocks.map(s => {
+            if (typeof livePrices !== 'undefined' && livePrices[s.sym]) return livePrices[s.sym].price;
+            return s.price || 100;
+        });
+        const shares = ab.stocks.map(s => s.shares);
+        const capital = ab.capital || 10000;
+        const risk = typeof state !== 'undefined' ? state.riskLevel : 4;
+        const horizon = typeof state !== 'undefined' ? state.horizon : 2;
+        const allCloses = tickers.map(t => {
+            if (typeof liveCache !== 'undefined' && liveCache[t]?.closes) return liveCache[t].closes;
+            const p = prices[tickers.indexOf(t)];
+            const closes = [p];
+            for (let i = 1; i < 252; i++) closes.unshift(p * (1 + (Math.random() - 0.505) * 0.02));
+            return closes;
+        });
+        const fundamentals = ab.stocks.map(s => ({
+            ...(s.ratios || {}),
+            sector: s.sector,
+            scores: s.scores,
+        }));
+        return { tickers, prices, shares, capital, risk, horizon, allCloses, fundamentals, _source: 'ai-builder', _aiData: ab };
+    }
+
     function readPortfolioData() {
+        // If source is AI builder, use that data
+        if (aioSource === 'ai-builder') {
+            const aiData = readAIBuilderData();
+            if (aiData) return aiData;
+        }
+
         const holdings = (typeof state !== 'undefined' && state.portfolio) ? state.portfolio : [];
         if (!holdings.length) return null;
         const tickers = holdings.map(h => h.sym);
@@ -361,7 +426,7 @@
             const rc = typeof ratioCache !== 'undefined' ? ratioCache[t] : null;
             return { ...(db || {}), ...(rc || {}) };
         });
-        return { tickers, prices, shares, capital, risk, horizon, allCloses, fundamentals };
+        return { tickers, prices, shares, capital, risk, horizon, allCloses, fundamentals, _source: 'manual' };
     }
 
     // ── AI Integration ────────────────────────────────────────────
@@ -458,6 +523,7 @@ Retourne le JSON d'analyse.`;
     }
 
     function buildPanelHTML() {
+        const hasAI = !!window.__aiBuilderPortfolio;
         return `
     <div class="aio-header">
       <div class="aio-title">
@@ -479,6 +545,13 @@ Retourne le JSON d'analyse.`;
         <button class="aio-btn-optimize" id="aioBtnOptimize">⚡ Optimize</button>
       </div>
     </div>
+    <div id="aioSourceRow" style="display:flex;gap:6px;padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+      <button class="aio-source-btn ${aioSource === 'manual' ? 'active' : ''}" data-source="manual" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid ${aioSource === 'manual' ? 'var(--gold)' : 'rgba(255,255,255,.1)'};background:${aioSource === 'manual' ? 'rgba(212,168,67,.12)' : 'rgba(255,255,255,.03)'};color:${aioSource === 'manual' ? 'var(--gold)' : 'var(--text3)'};cursor:pointer;font-size:11px;font-family:'Syne',sans-serif;font-weight:600;transition:all .2s">📋 Manual Portfolio</button>
+      <button class="aio-source-btn ${aioSource === 'ai-builder' ? 'active' : ''}" data-source="ai-builder" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid ${aioSource === 'ai-builder' ? '#a855f7' : 'rgba(255,255,255,.1)'};background:${aioSource === 'ai-builder' ? 'rgba(168,85,247,.12)' : 'rgba(255,255,255,.03)'};color:${aioSource === 'ai-builder' ? '#a855f7' : 'var(--text3)'};cursor:pointer;font-size:11px;font-family:'Syne',sans-serif;font-weight:600;transition:all .2s;position:relative">
+        🤖 AI Builder Selection
+        ${hasAI ? '<span style="position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#a855f7;animation:pulse 1.5s infinite"></span>' : ''}
+      </button>
+    </div>
     <div class="aio-body" id="aioBody">
       <div class="aio-empty">
         <div class="aio-empty-icon">📊</div>
@@ -495,6 +568,25 @@ Retourne le JSON d'analyse.`;
         });
         document.getElementById('aioBlend')?.addEventListener('input', (e) => {
             aioState.blendRatio = e.target.value / 100;
+        });
+
+        // Source toggle buttons
+        document.querySelectorAll('#aioSourceRow .aio-source-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                aioSource = btn.dataset.source;
+                // Re-inject panel to refresh active states
+                const panel = document.getElementById('aio-panel');
+                if (panel) { panel.innerHTML = buildPanelHTML(); bindEvents(); }
+            });
+        });
+
+        // Listen for AI Builder selections
+        window.addEventListener('aiBuilder:selected', (e) => {
+            aioSource = 'ai-builder';
+            const panel = document.getElementById('aio-panel');
+            if (panel) { panel.innerHTML = buildPanelHTML(); bindEvents(); }
+            // Auto-run optimization with AI Builder data
+            setTimeout(() => runOptimizer(), 300);
         });
         document.getElementById('aioBtnOptimize')?.addEventListener('click', () => runOptimizer());
     }
@@ -525,7 +617,7 @@ Retourne le JSON d'analyse.`;
             await sleep(50);
             const { weights, methods } = ensembleOptimize(cov, mu, data.tickers.length);
             const finalW = applySectorConstraint(weights, data.tickers, 0.40);
-            const metrics = portfolioMetrics(finalW, cov, mu);
+            const metrics = portfolioMetrics(finalW, cov, mu, data.allCloses);
 
             showLoading(body, 'Computing efficient frontier...');
             await sleep(50);
@@ -543,9 +635,20 @@ Retourne le JSON d'analyse.`;
                 }
             }
 
-            const finalMetrics = portfolioMetrics(blendedW, cov, mu);
+            const finalMetrics = portfolioMetrics(blendedW, cov, mu, data.allCloses);
             aioState.results = { weights: blendedW, methods, metrics: finalMetrics, frontier, data, mu, cov };
             aioState.aiResults = aiData;
+
+            // ── Expose target weights for the Risk tab (rebalance preview) ──
+            try {
+                window.__aioLastResult = {
+                    tickers: data.tickers.slice(),
+                    weights: blendedW.slice(),
+                    metrics: finalMetrics,
+                    timestamp: Date.now(),
+                };
+                window.dispatchEvent(new CustomEvent('aio:optimized', { detail: window.__aioLastResult }));
+            } catch (_) { /* noop */ }
 
             renderResults(body);
         } catch (e) {
@@ -576,7 +679,7 @@ Retourne le JSON d'analyse.`;
         <div class="aio-kpi gold"><div class="aio-kpi-label">Expected Return</div><div class="aio-kpi-value">${(m.ret * 100).toFixed(1)}%</div><div class="aio-kpi-sub">Annualized</div></div>
         <div class="aio-kpi teal"><div class="aio-kpi-label">Volatility</div><div class="aio-kpi-value">${(m.vol * 100).toFixed(1)}%</div><div class="aio-kpi-sub">Annual σ</div></div>
         <div class="aio-kpi blue"><div class="aio-kpi-label">Sharpe Ratio</div><div class="aio-kpi-value">${m.sharpe.toFixed(2)}</div><div class="aio-kpi-sub">rf = ${(RF * 100).toFixed(0)}%</div></div>
-        <div class="aio-kpi red"><div class="aio-kpi-label">Max Drawdown</div><div class="aio-kpi-value">-${(m.maxDD * 100).toFixed(1)}%</div><div class="aio-kpi-sub">Estimated</div></div>
+        <div class="aio-kpi red"><div class="aio-kpi-label">Max Drawdown</div><div class="aio-kpi-value">-${(m.maxDD * 100).toFixed(1)}%</div><div class="aio-kpi-sub">${m.ddDurationDays ? 'Historical · ' + m.ddDurationDays + 'd' : 'Estimated'}</div></div>
       </div>
       <div class="aio-tabs" id="aioTabs">
         <div class="aio-tab active" data-tab="weights">Weights</div>

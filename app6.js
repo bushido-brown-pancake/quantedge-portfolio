@@ -16,7 +16,12 @@ const RATIO_DEFS = {
     cr: { label: 'Current Ratio', unit: 'x', group: 'Financial Health', icon: '💧', good: 'high', desc: '> 1 means current assets cover short-term liabilities.' },
     fcf: { label: 'FCF Yield', unit: '%', group: 'Cash', icon: '💵', good: 'high', desc: 'Free Cash Flow / Market Cap.' },
     div: { label: 'Div Yield', unit: '%', group: 'Income', icon: '🎁', good: 'high', desc: 'Annual dividend / stock price.' },
-    beta: { label: 'Beta', unit: '', group: 'Risk', icon: '📉', good: 'low', desc: '< 1 less volatile than market. > 1 more volatile.' },
+    beta:   { label: 'Beta', unit: '', group: 'Risk', icon: '📉', good: 'low', desc: '< 1 less volatile than market. > 1 more volatile.' },
+    vol:    { label: 'Volatility 1Y', unit: '%', group: 'Risk', icon: '〰️', good: 'low', desc: 'Annualized price volatility — computed from Refinitiv prices.' },
+    maxdd:  { label: 'Max Drawdown', unit: '%', group: 'Risk', icon: '📉', good: 'low', desc: 'Largest peak-to-trough drop over 1 year — Refinitiv.' },
+    sharpe: { label: 'Sharpe 1Y', unit: '', group: 'Risk', icon: '⚡', good: 'high', desc: 'Risk-adjusted return (rf=4%) — computed from Refinitiv prices.' },
+    mom3m:  { label: 'Momentum 3M', unit: '%', group: 'Momentum', icon: '🚀', good: 'high', desc: 'Cumulative return over 3 months — Refinitiv.' },
+    mom12m: { label: 'Momentum 12M', unit: '%', group: 'Momentum', icon: '📆', good: 'high', desc: 'Cumulative return over 12 months — Refinitiv.' },
 };
 
 const RATIO_THRESHOLDS = {
@@ -31,10 +36,15 @@ const RATIO_THRESHOLDS = {
     cr: { good: [1.5, Infinity], bad: [0, 1] },
     fcf: { good: [4, Infinity], bad: [0, 1] },
     div: { good: [2, 6], bad: [0, 0.5] },
-    beta: { good: [0, 0.8], bad: [1.5, Infinity] },
+    beta:   { good: [0, 0.8],   bad: [1.5, Infinity] },
+    vol:    { good: [0, 15],    bad: [35, Infinity] },
+    maxdd:  { good: [0, 10],    bad: [25, Infinity] },
+    sharpe: { good: [1, Infinity], bad: [-Infinity, 0] },
+    mom3m:  { good: [5, Infinity], bad: [-10, 0] },
+    mom12m: { good: [10, Infinity], bad: [-15, 0] },
 };
 
-const RATIO_SCALES = { pe: [0, 60], pb: [0, 10], ps: [0, 20], ev: [0, 40], roe: [0, 50], roa: [0, 25], margin: [0, 50], de: [0, 3], cr: [0, 4], fcf: [0, 10], div: [0, 8], beta: [0, 2.5] };
+const RATIO_SCALES = { pe: [0, 60], pb: [0, 10], ps: [0, 20], ev: [0, 40], roe: [0, 50], roa: [0, 25], margin: [0, 50], de: [0, 3], cr: [0, 4], fcf: [0, 10], div: [0, 8], beta: [0, 2.5], vol: [0, 60], maxdd: [0, 50], sharpe: [-1, 3], mom3m: [-30, 50], mom12m: [-40, 100] };
 
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -145,6 +155,19 @@ function buildStockCard(sym, active) {
 
     const rows = active.map(key => buildRatioRow(key, loaded ? cached[key] : null, loaded)).join('');
 
+    const isFallback = loaded && cached?._isFallback;
+    const isRdp = loaded && cached?._isRdp;
+    const badge = isFallback
+        ? `<div id="rfb-${sym}" title="Données réelles indisponibles — utilisation des moyennes du secteur ${cached._fallbackSector || ''}"
+               style="display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(224,169,59,.15);color:#e0a93b;margin-top:2px">
+               ⚠ Estimation sectorielle
+           </div>`
+        : (loaded
+            ? (isRdp 
+                ? `<div id="rfb-${sym}" style="display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(0,102,255,.15);color:#3399ff;margin-top:2px">✓ Refinitiv RDP</div>`
+                : `<div id="rfb-${sym}" style="display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(63,179,127,.12);color:#3fb37f;margin-top:2px">✓ Yahoo Finance</div>`)
+            : `<div id="rfb-${sym}"></div>`);
+
     return `<div id="rcard-${sym}" style="background:var(--bg-glass2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;backdrop-filter:blur(8px);transition:border-color var(--transition);animation:fadeUp .3s ease"
         onmouseover="this.style.borderColor='${color}50'" onmouseout="this.style.borderColor='rgba(30,50,80,.45)'">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
@@ -153,6 +176,7 @@ function buildStockCard(sym, active) {
                 <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${color}">${escapeHtml(sym)}</div>
                 <div id="rname-${sym}" style="font-size:10px;color:var(--text3)">${escapeHtml(name)}</div>
                 <div id="rsector-${sym}" style="font-size:9px;color:var(--text3);margin-top:1px">${escapeHtml(sector)}</div>
+                ${badge}
             </div>
             <div style="text-align:right;flex-shrink:0">
                 <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text)">$${price.toFixed(2)}</div>
@@ -194,6 +218,48 @@ function patchStockCard(sym, active) {
         if (existing) existing.replaceWith(built);
         else rowsEl.appendChild(built);
     });
+
+    // Update the data-source badge to reflect real vs fallback after refresh
+    const badgeEl = document.getElementById(`rfb-${sym}`);
+    if (badgeEl) {
+        if (cached._isFallback) {
+            badgeEl.style.display = 'inline-flex';
+            badgeEl.style.alignItems = 'center';
+            badgeEl.style.gap = '3px';
+            badgeEl.style.fontSize = '9px';
+            badgeEl.style.padding = '2px 6px';
+            badgeEl.style.borderRadius = '3px';
+            badgeEl.style.background = 'rgba(224,169,59,.15)';
+            badgeEl.style.color = '#e0a93b';
+            badgeEl.style.marginTop = '2px';
+            badgeEl.title = `Données réelles indisponibles — utilisation des moyennes du secteur ${cached._fallbackSector || ''}`;
+            badgeEl.textContent = '⚠ Estimation sectorielle';
+        } else if (cached._isRdp) {
+            badgeEl.style.display = 'inline-flex';
+            badgeEl.style.alignItems = 'center';
+            badgeEl.style.gap = '3px';
+            badgeEl.style.fontSize = '9px';
+            badgeEl.style.padding = '2px 6px';
+            badgeEl.style.borderRadius = '3px';
+            badgeEl.style.background = 'rgba(0,102,255,.15)';
+            badgeEl.style.color = '#3399ff';
+            badgeEl.style.marginTop = '2px';
+            badgeEl.title = 'Données réelles Refinitiv RDP';
+            badgeEl.textContent = '✓ Refinitiv RDP';
+        } else {
+            badgeEl.style.display = 'inline-flex';
+            badgeEl.style.alignItems = 'center';
+            badgeEl.style.gap = '3px';
+            badgeEl.style.fontSize = '9px';
+            badgeEl.style.padding = '2px 6px';
+            badgeEl.style.borderRadius = '3px';
+            badgeEl.style.background = 'rgba(63,179,127,.12)';
+            badgeEl.style.color = '#3fb37f';
+            badgeEl.style.marginTop = '2px';
+            badgeEl.title = 'Données réelles Yahoo Finance';
+            badgeEl.textContent = '✓ Yahoo Finance';
+        }
+    }
 
     // Refresh comparison table
     const syms = [...new Set(state.portfolio.map(p => p.sym))];
@@ -282,8 +348,50 @@ async function fetchBatchRatios(syms) {
     const stale = syms.filter(s => !ratioCache[s]);
     if (!stale.length) return;
 
-    // 2) Fetch via CORS proxy (same approach as price fetching — no auth needed)
+    // 2) Refinitiv metrics (calculés depuis prix historiques) + Yahoo Finance pour ratios comptables
     await Promise.allSettled(stale.map(async sym => {
+        // 2a) Refinitiv RDP metrics — beta, vol, drawdown, momentum, 52W (calculés sur données réelles)
+        let rdpMetrics = null;
+        try {
+            const res = await fetch(`/api/rdp/metrics/${encodeURIComponent(sym)}`, { signal: AbortSignal.timeout(12000) });
+            if (res.ok) {
+                const m = await res.json();
+                if (!m.error) rdpMetrics = m;
+            }
+        } catch (_) {}
+
+        // 2b) Yahoo Finance — ratios comptables (P/E, P/B, ROE, marges…)
+        // Fusion avec les métriques Refinitiv calculées (beta, vol, drawdown, 52W…)
+        try {
+            const res = await fetch(`/api/yfsummary/${encodeURIComponent(sym)}`,
+                { signal: AbortSignal.timeout(8000) });
+            if (res.ok) {
+                const summary = await res.json();
+                if (!summary.error) {
+                    const r = buildRatiosFromSummary(sym, summary);
+                    const hasData = r.pe !== null || r.pb !== null || r.roe !== null || r.de !== null;
+                    if (hasData) {
+                        // Écraser beta, 52W, volatilité avec les vraies valeurs Refinitiv
+                        if (rdpMetrics) {
+                            if (rdpMetrics.beta    != null) r.beta   = rdpMetrics.beta;
+                            if (rdpMetrics.high52w != null) r.high52w = rdpMetrics.high52w;
+                            if (rdpMetrics.low52w  != null) r.low52w  = rdpMetrics.low52w;
+                            if (rdpMetrics.vol1y       != null) r.vol    = rdpMetrics.vol1y;
+                            if (rdpMetrics.maxDrawdown != null) r.maxdd  = rdpMetrics.maxDrawdown;
+                            if (rdpMetrics.sharpe1y    != null) r.sharpe = rdpMetrics.sharpe1y;
+                            if (rdpMetrics.momentum3m  != null) r.mom3m  = rdpMetrics.momentum3m;
+                            if (rdpMetrics.momentum12m != null) r.mom12m = rdpMetrics.momentum12m;
+                            r._rdpMetrics = true;
+                        }
+                        ratioCache[sym] = r;
+                        lsSet('qratio_' + sym, r);
+                        return;
+                    }
+                }
+            }
+        } catch (_) { }
+
+        // 2b) Ancien chemin (fetchWithProxy direct)
         try {
             const modules = 'defaultKeyStatistics,financialData,summaryDetail,price,assetProfile';
             const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${sym}?modules=${modules}`;
@@ -291,25 +399,30 @@ async function fetchBatchRatios(syms) {
             const summary = data?.quoteSummary?.result?.[0];
             if (summary) {
                 const r = buildRatiosFromSummary(sym, summary);
-                // Reject if all key fields are null (YF returned empty data)
                 const hasData = r.pe !== null || r.pb !== null || r.roe !== null || r.de !== null;
                 if (hasData) {
                     ratioCache[sym] = r;
                     lsSet('qratio_' + sym, r);
-                    return; // success — skip fallback
+                    return;
                 }
             }
         } catch (_) { }
 
         // 3) Fallback: sector-aware defaults (always fills something useful)
+        //    Matching corrigé : on cherche dans les DEUX sens (DB → key et key → DB)
         if (!ratioCache[sym]) {
             const db = STOCKS_DB.find(x => x.sym === sym);
-            const sector = db?.sector || '';
-            // Match SECTOR_RATIOS keys from app3.js
-            const sKey = ['Technology', 'Healthcare', 'Finance', 'Energy', 'Consumer',
-                'Industrial', 'Real Estate', 'Utilities'].find(
-                    k => sector.toLowerCase().includes(k.toLowerCase())
-                ) || 'Unknown';
+            const sector = (db?.sector || '').toLowerCase();
+            const SECTOR_KEYS = ['Technology', 'Healthcare', 'Finance', 'Energy',
+                'Consumer', 'Industrial', 'Real Estate', 'Utilities'];
+            // Match bidirectionnel : "tech" ↔ "technology", "fin" ↔ "finance", etc.
+            const sKey = SECTOR_KEYS.find(k => {
+                const kl = k.toLowerCase();
+                return sector.includes(kl) || kl.includes(sector) ||
+                    (sector === 'tech' && k === 'Technology') ||
+                    (sector === 'fin' && k === 'Finance') ||
+                    (sector === 'health' && k === 'Healthcare');
+            }) || 'Unknown';
             const def = (typeof SECTOR_RATIOS !== 'undefined' && SECTOR_RATIOS[sKey]) || {
                 pe: 22, pb: 3.5, evEbitda: 15, deRatio: 0.7, roe: 18, roa: 9, fcfYield: 4.0, divYield: 1.5
             };
@@ -318,10 +431,11 @@ async function fetchBatchRatios(syms) {
                 ev: def.evEbitda, roe: def.roe, roa: def.roa,
                 margin: null, de: def.deRatio, cr: null,
                 fcf: def.fcfYield, div: def.divYield, beta: null,
-                _name: db?.name || sym, _sector: sector || sKey, _ts: Date.now(),
+                _name: db?.name || sym, _sector: db?.sector || sKey, _ts: Date.now(),
                 _isFallback: true,
+                _fallbackSector: sKey,
             };
-            lsSet('qratio_' + sym, ratioCache[sym]);
+            // On ne cache PAS le fallback en localStorage : on retentera au prochain refresh
         }
     }));
 }
@@ -442,22 +556,89 @@ function onRatioChange() {
     renderRatioChips();
     if (grid) grid.innerHTML = syms.map(sym => buildStockCard(sym, active)).join('');
     renderRatioTable(syms);
-    // Fetch only what we don't have yet
+    // Fetch only what we don't have yet — RDP primary, YF fallback
     syms.filter(sym => !ratioCache[sym]).forEach(async sym => {
         try {
-            const summary = await yfSummary(sym);
-            if (summary) { ratioCache[sym] = { ...extractRatios(sym, summary, livePrices[sym]), _ts: Date.now() }; patchStockCard(sym, active); }
+            const rdpRes = await fetch(`/api/rdp/fundamentals/${encodeURIComponent(sym)}`, { signal: AbortSignal.timeout(6000) });
+            if (rdpRes.ok) {
+                const rdp = await rdpRes.json();
+                if (!rdp.error && (rdp.peRatio != null || rdp.roe != null || rdp.pbRatio != null)) {
+                    ratioCache[sym] = {
+                        pe: rdp.peRatio, pb: rdp.pbRatio, ps: rdp.priceToSales, ev: rdp.evEbitda,
+                        roe: rdp.roe != null ? rdp.roe * 100 : null, roa: rdp.roa != null ? rdp.roa * 100 : null,
+                        margin: rdp.netMargin != null ? rdp.netMargin * 100 : null,
+                        de: rdp.debtToEquity != null ? rdp.debtToEquity * 100 : null,
+                        cr: rdp.currentRatio, div: rdp.dividendYield != null ? rdp.dividendYield * 100 : null,
+                        beta: rdp.beta, _ts: Date.now(), _isRdp: true,
+                    };
+                    lsSet('qratio_' + sym, ratioCache[sym]);
+                    patchStockCard(sym, active);
+                    return;
+                }
+            }
+        } catch (_) {}
+        try {
+            const res = await fetch(`/api/yfsummary/${encodeURIComponent(sym)}`, { signal: AbortSignal.timeout(10000) });
+            if (res.ok) {
+                const summary = await res.json();
+                if (summary && !summary.error) {
+                    ratioCache[sym] = { ...extractRatios(sym, summary, livePrices[sym]), _ts: Date.now() };
+                    lsSet('qratio_' + sym, ratioCache[sym]);
+                    patchStockCard(sym, active);
+                }
+            }
         } catch (_) { }
     });
 }
 
 // ──────────────────────────────────────────────
-// TAB HOOK
+// TAB HOOK + AUTO-REFRESH
 // ──────────────────────────────────────────────
+let _ratioRefreshTimer = null;
+let _ratioLastFetch = 0;
+const RATIO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+function _startRatioAutoRefresh() {
+    if (_ratioRefreshTimer) return;
+    _ratioRefreshTimer = setInterval(() => {
+        if (document.getElementById('tab-financials')?.classList.contains('active')) {
+            console.log('[ratios] Auto-refreshing ratios...');
+            fetchAndRenderRatios();
+        }
+    }, RATIO_REFRESH_INTERVAL);
+}
+
+function _checkRatioStale() {
+    const elapsed = Date.now() - _ratioLastFetch;
+    if (elapsed > RATIO_REFRESH_INTERVAL || _ratioLastFetch === 0) {
+        fetchAndRenderRatios();
+    }
+}
+
+// Patch fetchAndRenderRatios to track timestamp
+const _origFetchAndRenderRatios = fetchAndRenderRatios;
+fetchAndRenderRatios = async function() {
+    _ratioLastFetch = Date.now();
+    await _origFetchAndRenderRatios();
+};
+
 (function () {
     const _prev = window.switchTab;
     window.switchTab = function (tab) {
         _prev(tab);
-        if (tab === 'financials') setTimeout(fetchAndRenderRatios, 60);
+        if (tab === 'financials') {
+            _checkRatioStale();
+            _startRatioAutoRefresh();
+        }
     };
 })();
+
+// Also auto-refresh ratios when live prices update (if financials tab is open)
+window.addEventListener('pricesUpdated', () => {
+    if (document.getElementById('tab-financials')?.classList.contains('active')) {
+        const syms = [...new Set(state.portfolio.map(p => p.sym))];
+        const active = getActiveRatios();
+        syms.forEach(sym => patchStockCard(sym, active));
+        renderRatioTable(syms);
+    }
+});

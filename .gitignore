@@ -1,0 +1,27 @@
+# Secrets — NE JAMAIS COMMITTER
+.env
+.env.local
+.env.*.local
+
+# Dépendances
+node_modules/
+ml-service/.venv/
+
+# Logs
+*.log
+.node-server.log
+.ml-service.log
+
+# Caches OS / éditeur
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+
+# Caches ML
+ml-service/.transformers_cache/
+ml-service/.torch_cache/

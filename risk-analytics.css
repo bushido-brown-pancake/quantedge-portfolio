@@ -1,0 +1,234 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   RISK-ANALYTICS.CSS — styles pour l'onglet Risk
+   Se greffe sur les variables de votre thème existant (var(--bg), etc.)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#tab-risk {
+    padding: 16px 0;
+}
+
+.qe-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.qe-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.qe-section-head h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--gold, #d4a843);
+    letter-spacing: 0.3px;
+}
+
+.qe-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+    .qe-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* KPI cards */
+.qe-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.qe-kpi {
+    background: rgba(20, 30, 45, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    transition: transform 0.15s, background 0.15s;
+}
+
+.qe-kpi:hover {
+    transform: translateY(-2px);
+    background: rgba(30, 45, 65, 0.6);
+}
+
+.qe-kpi-label {
+    font-size: 11px;
+    color: var(--text3, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.qe-kpi-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text1, #fff);
+    font-variant-numeric: tabular-nums;
+}
+
+.qe-kpi-sub {
+    font-size: 10px;
+    color: var(--text3, #888);
+    margin-top: 4px;
+}
+
+/* Tables */
+.qe-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.qe-table thead th {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text3, #aaa);
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.qe-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--text1, #ddd);
+}
+
+.qe-table tbody tr.critical td { background: rgba(231, 76, 60, 0.08); }
+.qe-table tbody tr.warning td { background: rgba(224, 169, 59, 0.06); }
+
+/* Barre de poids */
+.qe-bar {
+    display: inline-block;
+    width: 60px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+    overflow: hidden;
+}
+.qe-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3fb37f, #d4a843);
+    border-radius: 3px;
+}
+
+/* Pills */
+.qe-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text2, #ccc);
+    margin: 1px;
+}
+.qe-pill.buy { background: rgba(63, 179, 127, 0.2); color: #3fb37f; font-weight: 600; }
+.qe-pill.sell { background: rgba(231, 76, 60, 0.2); color: #e74c3c; font-weight: 600; }
+
+/* Alertes */
+.qe-alerts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.qe-alert {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    border-left: 3px solid;
+    line-height: 1.4;
+}
+
+.qe-alert.info { background: rgba(100, 149, 237, 0.08); border-left-color: #6495ed; color: #b3ccff; }
+.qe-alert.warning { background: rgba(224, 169, 59, 0.1); border-left-color: #e0a93b; color: #f4d47a; }
+.qe-alert.critical { background: rgba(231, 76, 60, 0.12); border-left-color: #e74c3c; color: #ff9999; }
+
+.qe-alert-tag {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+
+.qe-alert-type {
+    font-weight: 600;
+    text-transform: capitalize;
+    min-width: 100px;
+}
+
+.qe-alert-msg { flex: 1; }
+
+/* Refresh button */
+.qe-btn-refresh {
+    background: rgba(212, 168, 67, 0.15);
+    color: var(--gold, #d4a843);
+    border: 1px solid rgba(212, 168, 67, 0.35);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.qe-btn-refresh:hover { background: rgba(212, 168, 67, 0.25); }
+
+/* Loader */
+.qe-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 20px;
+    color: var(--text3, #888);
+    gap: 16px;
+}
+
+.qe-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(212, 168, 67, 0.2);
+    border-top-color: var(--gold, #d4a843);
+    border-radius: 50%;
+    animation: qe-spin 0.8s linear infinite;
+}
+
+@keyframes qe-spin {
+    to { transform: rotate(360deg); }
+}
+
+.qe-footer-note {
+    font-size: 11px;
+    color: var(--text3, #777);
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+    line-height: 1.5;
+}
+
+.qe-footer-note code {
+    background: rgba(212, 168, 67, 0.1);
+    color: var(--gold, #d4a843);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+}

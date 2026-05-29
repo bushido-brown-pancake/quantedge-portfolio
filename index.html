@@ -238,7 +238,7 @@
     .ticker-inner {
       display: inline-flex;
       gap: 36px;
-      animation: ticker 35s linear infinite
+      animation: ticker 90s linear infinite
     }
 
     .tick-item {
@@ -1934,30 +1934,23 @@
       <div class="s-section">
         <h3>📊 Desired Ratios</h3>
         <div class="check-grid">
-          <label class="check-item"><input type="checkbox" checked value="pe" onchange="onRatioChange()"><span>P/E
-              Ratio</span></label>
-          <label class="check-item"><input type="checkbox" checked value="pb" onchange="onRatioChange()"><span>P/B
-              Ratio</span></label>
-          <label class="check-item"><input type="checkbox" value="ev"
-              onchange="onRatioChange()"><span>EV/EBITDA</span></label>
-          <label class="check-item"><input type="checkbox" checked value="de"
-              onchange="onRatioChange()"><span>Debt/Equity</span></label>
-          <label class="check-item"><input type="checkbox" checked value="roe"
-              onchange="onRatioChange()"><span>ROE</span></label>
-          <label class="check-item"><input type="checkbox" value="roa"
-              onchange="onRatioChange()"><span>ROA</span></label>
-          <label class="check-item"><input type="checkbox" value="cr" onchange="onRatioChange()"><span>Current
-              Ratio</span></label>
-          <label class="check-item"><input type="checkbox" value="fcf" onchange="onRatioChange()"><span>FCF
-              Yield</span></label>
-          <label class="check-item"><input type="checkbox" value="div" onchange="onRatioChange()"><span>Div
-              Yield</span></label>
-          <label class="check-item"><input type="checkbox" value="ps" onchange="onRatioChange()"><span>P/S
-              Ratio</span></label>
-          <label class="check-item"><input type="checkbox" value="beta"
-              onchange="onRatioChange()"><span>Beta</span></label>
-          <label class="check-item"><input type="checkbox" value="margin" onchange="onRatioChange()"><span>Net
-              Margin</span></label>
+          <label class="check-item"><input type="checkbox" checked value="pe" onchange="onRatioChange()"><span>P/E Ratio</span></label>
+          <label class="check-item"><input type="checkbox" checked value="pb" onchange="onRatioChange()"><span>P/B Ratio</span></label>
+          <label class="check-item"><input type="checkbox" checked value="ev" onchange="onRatioChange()"><span>EV/EBITDA</span></label>
+          <label class="check-item"><input type="checkbox" checked value="de" onchange="onRatioChange()"><span>Debt/Equity</span></label>
+          <label class="check-item"><input type="checkbox" checked value="roe" onchange="onRatioChange()"><span>ROE</span></label>
+          <label class="check-item"><input type="checkbox" checked value="roa" onchange="onRatioChange()"><span>ROA</span></label>
+          <label class="check-item"><input type="checkbox" checked value="cr" onchange="onRatioChange()"><span>Current Ratio</span></label>
+          <label class="check-item"><input type="checkbox" checked value="fcf" onchange="onRatioChange()"><span>FCF Yield</span></label>
+          <label class="check-item"><input type="checkbox" checked value="div" onchange="onRatioChange()"><span>Div Yield</span></label>
+          <label class="check-item"><input type="checkbox" checked value="ps" onchange="onRatioChange()"><span>P/S Ratio</span></label>
+          <label class="check-item"><input type="checkbox" checked value="beta" onchange="onRatioChange()"><span>Beta</span></label>
+          <label class="check-item"><input type="checkbox" checked value="margin" onchange="onRatioChange()"><span>Net Margin</span></label>
+          <label class="check-item" title="Calculé depuis Refinitiv RDP"><input type="checkbox" checked value="vol" onchange="onRatioChange()"><span>Volatility 1Y <span style="font-size:9px;color:#3399ff">RDP</span></span></label>
+          <label class="check-item" title="Calculé depuis Refinitiv RDP"><input type="checkbox" checked value="maxdd" onchange="onRatioChange()"><span>Max Drawdown <span style="font-size:9px;color:#3399ff">RDP</span></span></label>
+          <label class="check-item" title="Calculé depuis Refinitiv RDP"><input type="checkbox" checked value="sharpe" onchange="onRatioChange()"><span>Sharpe 1Y <span style="font-size:9px;color:#3399ff">RDP</span></span></label>
+          <label class="check-item" title="Calculé depuis Refinitiv RDP"><input type="checkbox" checked value="mom3m" onchange="onRatioChange()"><span>Momentum 3M <span style="font-size:9px;color:#3399ff">RDP</span></span></label>
+          <label class="check-item" title="Calculé depuis Refinitiv RDP"><input type="checkbox" checked value="mom12m" onchange="onRatioChange()"><span>Momentum 12M <span style="font-size:9px;color:#3399ff">RDP</span></span></label>
         </div>
         <button
           onclick="switchTab('financials');setTimeout(()=>document.getElementById('ratioSection')?.scrollIntoView({behavior:'smooth'}),100)"
@@ -1975,48 +1968,59 @@
         </button>
       </div>
 
-      <!-- SECTOR BUILDER MODAL -->
       <div id="sectorBuilderOverlay"
         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
         <div
           style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:24px;max-width:520px;width:calc(100%-32px);max-height:80vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:slideUp .3s ease">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <h2 style="font-family:'Syne',sans-serif;font-size:16px;color:var(--purple)">🤖 Sector Portfolio Builder
+            <h2 style="font-family:'Syne',sans-serif;font-size:16px;color:var(--purple)">🤖 AI Portfolio Builder
             </h2>
             <button onclick="closeSectorBuilder()"
               style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
           </div>
-          <p style="font-size:12px;color:var(--text3);margin-bottom:14px">Configure and generate an optimized portfolio
-            based on your selected sectors.</p>
+          <p style="font-size:12px;color:var(--text3);margin-bottom:14px">Scans Yahoo Finance for the best stocks in your selected sectors, scores them by fundamental ratios, and builds an optimized portfolio.</p>
 
           <label style="margin-bottom:4px">Selected Sectors</label>
-          <div id="builderSectorPills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+          <div id="builderSectorPills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+          <div id="builderSectorCounts" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
 
           <label for="builderBudget">Total Budget ($)</label>
           <input type="number" id="builderBudget" value="10000" min="100" step="100">
 
-          <label for="builderWeighting">Weighting Strategy</label>
+          <label for="builderWeighting">AI Strategy</label>
           <select id="builderWeighting" style="margin-bottom:14px">
-            <option value="equal">Equal Weight — same % per stock</option>
-            <option value="market_cap">Market Cap Weight — bigger stocks get more</option>
-            <option value="momentum">Momentum — favor recent winners</option>
+            <option value="balanced">🎯 Balanced — Quality + Value + Momentum</option>
+            <option value="quality">🏆 Quality — High ROE, margins, cash flow</option>
+            <option value="value">💎 Value — Low P/E, P/B, cheap valuations</option>
+            <option value="momentum">🚀 Momentum — Strong recent performance</option>
           </select>
 
           <label for="builderMaxPerSector">Max Stocks per Sector</label>
-          <input type="number" id="builderMaxPerSector" value="2" min="1" max="5" style="margin-bottom:14px">
+          <input type="number" id="builderMaxPerSector" value="3" min="1" max="8" style="margin-bottom:14px">
+
+          <!-- Progress bar -->
+          <div id="builderProgress" style="display:none;margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span id="builderProgressText" style="font-size:10px;color:var(--teal);font-family:'Space Mono',monospace">Scanning…</span>
+              <div class="spinner" style="width:12px;height:12px;border-width:2px"></div>
+            </div>
+            <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+              <div id="builderProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--purple),var(--teal));border-radius:2px;transition:width .5s ease"></div>
+            </div>
+          </div>
 
           <div id="builderPreview"
             style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;display:none">
             <div
               style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace;font-weight:700;margin-bottom:8px">
-              PREVIEW</div>
+              AI SELECTION</div>
             <div id="builderPreviewList" style="display:flex;flex-direction:column;gap:5px"></div>
           </div>
 
           <div style="display:flex;gap:10px">
             <button onclick="previewSectorPortfolio()"
               style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border2);background:var(--bg);color:var(--text2);font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition)">
-              👁 Preview
+              🔍 Scan & Analyze
             </button>
             <button onclick="applySectorPortfolio()"
               style="flex:2;padding:10px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--purple),#7c3aed);color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all var(--transition)">
@@ -2047,6 +2051,7 @@
         <div class="tab" onclick="switchTab('news')" role="tab" tabindex="0">News</div>
         <div class="tab" onclick="switchTab('simulation')" role="tab" tabindex="0">📊 Simulation</div>
         <div class="tab" onclick="switchTab('optimizer')" role="tab" tabindex="0">🧠 AI Optimizer</div>
+        <div class="tab" onclick="switchTab('risk')" role="tab" tabindex="0">⚠️ Risk</div>
       </div>
 
       <!-- HOLDINGS TAB -->
@@ -2109,6 +2114,9 @@
 
       <!-- ANALYSIS TAB -->
       <div class="tab-pane" id="tab-analysis" role="tabpanel">
+        <!-- Portfolio Analysis Module (app8.js) -->
+        <div id="analysisContent" style="margin-bottom:24px"></div>
+
         <div class="section-label">Quantitative Models</div>
         <div class="charts-grid">
           <div class="chart-panel">
@@ -2176,6 +2184,16 @@
         </div>
 
         <div class="section-label">Financial Statements</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <label style="font-size:11px;color:var(--text3);font-family:'Syne',sans-serif;font-weight:700">Ticker:</label>
+            <select id="finTickerSelect" onchange="setFinTicker(this.value)"
+              style="padding:5px 10px;font-size:12px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:'Space Mono',monospace;cursor:pointer;min-width:100px"></select>
+            <div id="finSourceBadge" style="font-size:10px;padding:3px 8px;border-radius:3px;font-family:'Space Mono',monospace"></div>
+          </div>
+          <button onclick="refreshFinancials()"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:11px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700">↺ Refresh</button>
+        </div>
         <div class="fin-tabs" role="tablist">
           <div class="fin-tab active" onclick="setFinTab('income',this)" role="tab">Income Statement</div>
           <div class="fin-tab" onclick="setFinTab('balance',this)" role="tab">Balance Sheet</div>
@@ -2304,6 +2322,9 @@
               Refresh</button>
           </div>
         </div>
+
+        <!-- Filters -->
+        <div id="newsFilters" style="margin-bottom:14px"></div>
 
         <!-- Two columns: Market News + Portfolio News -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -2496,6 +2517,16 @@
         <div id="aio-tab-host"></div>
       </div>
 
+      <!-- RISK ANALYTICS TAB -->
+      <div class="tab-pane" id="tab-risk" role="tabpanel">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+          <div>
+            <div class="section-label" style="margin:0;font-size:16px">⚠️ Risk Analytics</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Vraies VaR/CVaR/drawdown — stress tests — alertes précoces — rééquilibrage</div>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -2506,7 +2537,12 @@
   <script src="app5.js"></script>
   <script src="app6.js"></script>
   <script src="app7.js"></script>
+  <script src="app8.js"></script>
   <script src="ai-optimizer.js"></script>
+  <!-- QuantEdge Engine (risk + allocation moteur) -->
+  <link rel="stylesheet" href="risk-analytics.css">
+  <script src="quantedge-engine.js"></script>
+  <script src="risk-analytics.js"></script>
 </body>
 
 </html>

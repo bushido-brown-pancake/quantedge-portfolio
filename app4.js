@@ -336,25 +336,35 @@ async function renderDynamicComparisonChart() {
 // =============================================
 // SECTOR PORTFOLIO BUILDER
 // =============================================
+// =============================================
+// AI SECTOR PORTFOLIO BUILDER — Real screening
+// =============================================
 let builderPortfolioPreview = [];
+let _builderScanning = false;
 
 function buildSectorPortfolio() {
     const overlay = document.getElementById('sectorBuilderOverlay');
     if (!overlay) return;
 
-    // Show active sectors in the builder modal
-    const activeSectors = [...document.querySelectorAll('#sidebarSectors .sector-tag.active')].map(el => el.textContent.trim());
+    const activeSectors = (typeof state !== 'undefined' && Array.isArray(state.sectors)) ? state.sectors.slice() : [];
     const pills = document.getElementById('builderSectorPills');
     if (pills) {
         pills.innerHTML = activeSectors.length > 0
             ? activeSectors.map(s => `<span style="padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:var(--purple)">${s}</span>`).join('')
-            : `<span style="font-size:11px;color:var(--red)">⚠ No sectors selected. Go back and activate sectors in the sidebar.</span>`;
+            : `<span style="font-size:11px;color:var(--red)">⚠ No sectors selected — pick at least one in the header chips or sidebar before building.</span>`;
     }
 
-    // Reset preview
-    document.getElementById('builderPreview').style.display = 'none';
-    builderPortfolioPreview = [];
+    const counts = document.getElementById('builderSectorCounts');
+    if (counts) {
+        counts.innerHTML = activeSectors.length > 0
+            ? `<span style="font-size:10px;color:var(--teal);font-family:'Space Mono',monospace">🔍 Will scan Yahoo Finance for stocks in ${activeSectors.length} sector(s)</span>`
+            : '';
+    }
 
+    document.getElementById('builderPreview').style.display = 'none';
+    const progressEl = document.getElementById('builderProgress');
+    if (progressEl) progressEl.style.display = 'none';
+    builderPortfolioPreview = [];
     overlay.style.display = 'flex';
 }
 
@@ -362,112 +372,193 @@ function closeSectorBuilder() {
     document.getElementById('sectorBuilderOverlay').style.display = 'none';
 }
 
-function previewSectorPortfolio() {
-    const activeSectors = [...document.querySelectorAll('#sidebarSectors .sector-tag.active')].map(el => el.textContent.trim());
-    if (activeSectors.length === 0) { notify('No sectors selected', 'error'); return; }
+async function previewSectorPortfolio() {
+    if (_builderScanning) return;
+    const activeSectors = (typeof state !== 'undefined' && Array.isArray(state.sectors)) ? state.sectors.slice() : [];
+    if (activeSectors.length === 0) { notify('No sectors selected — activate at least one in the header chips or sidebar', 'error'); return; }
 
     const budget = +document.getElementById('builderBudget').value || 10000;
-    const weighting = document.getElementById('builderWeighting').value;
-    const maxPerSector = +document.getElementById('builderMaxPerSector').value || 2;
+    const strategy = document.getElementById('builderWeighting').value;
+    const maxPerSector = +document.getElementById('builderMaxPerSector').value || 3;
 
-    // Pick stocks per sector
-    let pool = [];
-    activeSectors.forEach(sector => {
-        let candidates = STOCKS_DB.filter(s => s.sector === sector);
-        if (candidates.length === 0) return;
+    _builderScanning = true;
+    const progressEl = document.getElementById('builderProgress');
+    const progressBar = document.getElementById('builderProgressBar');
+    const progressText = document.getElementById('builderProgressText');
+    if (progressEl) progressEl.style.display = 'block';
 
-        // Sort by strategy
-        if (weighting === 'momentum') {
-            candidates = [...candidates].sort((a, b) => b.change - a.change);
-        } else if (weighting === 'market_cap') {
-            candidates = [...candidates].sort((a, b) => b.price - a.price);
-        } else {
-            candidates = [...candidates].sort(() => Math.random() - 0.5);
+    const update = (pct, text) => {
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressText) progressText.textContent = text;
+    };
+
+    try {
+        // Step 1: Discover stocks per sector via screener
+        update(10, `Scanning ${activeSectors.length} sector(s)…`);
+        const allCandidates = [];
+
+        for (let i = 0; i < activeSectors.length; i++) {
+            const sector = activeSectors[i];
+            update(10 + (i / activeSectors.length) * 30, `Scanning ${sector}…`);
+            try {
+                const res = await fetch(`/api/screener/${encodeURIComponent(sector)}?limit=40`, { signal: AbortSignal.timeout(15000) });
+                if (res.ok) {
+                    const data = await res.json();
+                    (data.stocks || []).forEach(s => {
+                        if (!allCandidates.find(c => c.sym === s.sym)) {
+                            allCandidates.push({ ...s, sector });
+                        }
+                    });
+                }
+            } catch (_) {}
         }
-        pool.push(...candidates.slice(0, maxPerSector));
-    });
 
-    if (pool.length === 0) { notify('No stocks found for selected sectors', 'error'); return; }
+        if (allCandidates.length === 0) {
+            // Fallback to local STOCKS_DB
+            activeSectors.forEach(sector => {
+                STOCKS_DB.filter(s => s.sector === sector).forEach(s => {
+                    if (!allCandidates.find(c => c.sym === s.sym)) {
+                        allCandidates.push({ sym: s.sym, name: s.name, sector });
+                    }
+                });
+            });
+        }
 
-    // Calculate allocation
-    let weights = {};
-    if (weighting === 'equal') {
-        pool.forEach(s => weights[s.sym] = 1 / pool.length);
-    } else if (weighting === 'market_cap') {
-        const totalP = pool.reduce((s, x) => s + x.price, 0);
-        pool.forEach(s => weights[s.sym] = s.price / totalP);
-    } else { // momentum
-        const total = pool.reduce((s, x) => s + Math.max(0.01, x.change + 5), 0);
-        pool.forEach(s => weights[s.sym] = Math.max(0.01, s.change + 5) / total);
+        update(45, `Found ${allCandidates.length} stocks — analyzing fundamentals…`);
+
+        // Step 2: Get fundamentals + scores from server
+        const syms = allCandidates.map(c => c.sym).slice(0, 60);
+        let scored = [];
+        try {
+            const res = await fetch('/api/screen/fundamentals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbols: syms, strategy }),
+                signal: AbortSignal.timeout(90000),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                scored = data.stocks || [];
+            }
+        } catch (_) {}
+
+        update(80, `Scoring ${scored.length} stocks…`);
+
+        // If server scoring failed, use local scoring
+        if (scored.length === 0) {
+            scored = allCandidates.map(c => {
+                const db = STOCKS_DB.find(s => s.sym === c.sym);
+                return {
+                    sym: c.sym, name: c.name || db?.name || c.sym, sector: c.sector,
+                    price: db?.price || 100, ratios: {},
+                    scores: { quality: 50, value: 50, momentum: 50, composite: 50 },
+                };
+            });
+        }
+
+        // Step 3: Select top N per sector
+        const selected = [];
+        activeSectors.forEach(sector => {
+            const sectorStocks = scored.filter(s =>
+                s.sector?.toLowerCase().includes(sector.toLowerCase()) ||
+                allCandidates.find(c => c.sym === s.sym && c.sector === sector)
+            );
+            sectorStocks.sort((a, b) => (b.scores?.composite || 0) - (a.scores?.composite || 0));
+            selected.push(...sectorStocks.slice(0, maxPerSector));
+        });
+
+        if (selected.length === 0) { notify('No stocks could be scored — check API connection', 'error'); _builderScanning = false; return; }
+
+        // Step 4: Calculate allocation
+        const totalScore = selected.reduce((s, x) => s + (x.scores?.composite || 50), 0);
+        builderPortfolioPreview = selected.map(s => {
+            const weight = (s.scores?.composite || 50) / totalScore;
+            const price = s.price || 100;
+            return {
+                sym: s.sym, name: s.name, sector: s.sector, price,
+                color: STOCKS_DB.find(x => x.sym === s.sym)?.color || colorForIndex(s.sym),
+                weight, allocation: budget * weight,
+                shares: Math.max(1, Math.floor(budget * weight / price)),
+                avgCost: price,
+                scores: s.scores, ratios: s.ratios,
+            };
+        });
+
+        update(100, `✓ ${builderPortfolioPreview.length} stocks selected`);
+
+        // Render preview
+        const listEl = document.getElementById('builderPreviewList');
+        listEl.innerHTML = builderPortfolioPreview.map((p, i) => {
+            const score = p.scores?.composite?.toFixed(0) || '—';
+            const badge = i < 3 ? '<span style="font-size:9px;background:rgba(212,168,67,.2);color:var(--gold);padding:1px 5px;border-radius:3px;margin-left:4px">🏆 Top</span>' : '';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+                <div style="width:24px;height:24px;border-radius:5px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000;flex-shrink:0">${p.sym.slice(0, 2)}</div>
+                <div style="flex:1">
+                    <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--gold)">${p.sym}${badge}</div>
+                    <div style="font-size:9px;color:var(--text3)">${escapeHtml(p.name)} · ${p.sector}</div>
+                </div>
+                <div style="text-align:center;min-width:40px">
+                    <div style="font-size:14px;font-weight:700;color:${score >= 65 ? 'var(--teal)' : score >= 45 ? 'var(--gold)' : 'var(--red)'}">${score}</div>
+                    <div style="font-size:8px;color:var(--text3)">Score</div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:10px;font-family:'Space Mono',monospace;color:var(--text)">${p.shares} sh @ $${p.price?.toFixed(0) || '—'}</div>
+                    <div style="font-size:10px;color:var(--text3)">$${p.allocation.toFixed(0)} (${(p.weight * 100).toFixed(1)}%)</div>
+                </div>
+            </div>`;
+        }).join('');
+
+        const totalCost = builderPortfolioPreview.reduce((s, p) => s + p.shares * p.price, 0);
+        listEl.innerHTML += `<div style="display:flex;justify-content:space-between;padding-top:8px;font-size:11px">
+            <span style="color:var(--text3)">${selected.length} stocks · ${activeSectors.length} sectors · ${strategy}</span>
+            <span style="font-family:'Space Mono',monospace;color:var(--teal)">~$${totalCost.toFixed(0)} deployed</span>
+        </div>`;
+
+        document.getElementById('builderPreview').style.display = 'block';
+        notify('✓ AI analysis complete — review then Apply', 'success');
+    } catch (err) {
+        notify('Error during scan: ' + err.message, 'error');
+    } finally {
+        _builderScanning = false;
     }
-
-    builderPortfolioPreview = pool.map(s => ({
-        sym: s.sym, name: s.name, sector: s.sector, price: s.price, color: s.color,
-        weight: weights[s.sym],
-        allocation: budget * weights[s.sym],
-        shares: Math.max(1, Math.floor(budget * weights[s.sym] / s.price)),
-        avgCost: s.price,
-    }));
-
-    // Render preview
-    const listEl = document.getElementById('builderPreviewList');
-    listEl.innerHTML = builderPortfolioPreview.map(p => `
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-            <div style="width:24px;height:24px;border-radius:5px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000;flex-shrink:0">${p.sym.slice(0, 2)}</div>
-            <div style="flex:1">
-                <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--gold)">${p.sym}</div>
-                <div style="font-size:10px;color:var(--text3)">${p.sector}</div>
-            </div>
-            <div style="text-align:right">
-                <div style="font-size:10px;font-family:'Space Mono',monospace;color:var(--text)">${p.shares} sh @ $${p.price.toFixed(0)}</div>
-                <div style="font-size:10px;color:var(--text3)">$${p.allocation.toFixed(0)} (${(p.weight * 100).toFixed(1)}%)</div>
-            </div>
-        </div>`).join('');
-
-    const totalCost = builderPortfolioPreview.reduce((s, p) => s + p.shares * p.price, 0);
-    listEl.innerHTML += `<div style="display:flex;justify-content:space-between;padding-top:8px;font-size:11px">
-        <span style="color:var(--text3)">${pool.length} stocks · ${activeSectors.length} sectors</span>
-        <span style="font-family:'Space Mono',monospace;color:var(--teal)">~$${totalCost.toFixed(0)} deployed</span>
-    </div>`;
-
-    document.getElementById('builderPreview').style.display = 'block';
-    notify('✓ Preview ready — review then Apply', 'success');
 }
 
 function applySectorPortfolio() {
-    if (builderPortfolioPreview.length === 0) {
-        notify('Preview first before applying', 'error');
-        return;
-    }
+    if (builderPortfolioPreview.length === 0) { notify('Preview first before applying', 'error'); return; }
 
-    showConfirm(
-        'Apply Sector Portfolio',
-        `This will REPLACE your current portfolio with ${builderPortfolioPreview.length} stocks. Continue?`,
-        () => {
-            // Replace portfolio
-            state.portfolio = builderPortfolioPreview.map(p => ({
-                sym: p.sym, shares: p.shares, avgCost: p.avgCost,
-            }));
-
-            // Make sure all stocks are in STOCKS_DB
-            builderPortfolioPreview.forEach(p => {
-                if (!STOCKS_DB.find(s => s.sym === p.sym)) {
-                    STOCKS_DB.push({ sym: p.sym, name: p.name, sector: p.sector, price: p.price, change: 0, color: p.color });
-                }
-            });
-
-            // Update initial amount
-            const totalInvested = builderPortfolioPreview.reduce((s, p) => s + p.shares * p.avgCost, 0);
-            const initEl = document.getElementById('initAmount');
-            if (initEl) { initEl.value = Math.round(totalInvested); state.initAmount = Math.round(totalInvested); }
-
-            closeSectorBuilder();
-            renderPortfolioTable();
-            renderTopMetrics();
-            renderCharts();
-            notify(`✓ Applied ${builderPortfolioPreview.length}-stock sector portfolio!`, 'success');
+    // Register stocks in STOCKS_DB so prices load, but do NOT replace user's portfolio
+    builderPortfolioPreview.forEach(p => {
+        if (!STOCKS_DB.find(s => s.sym === p.sym)) {
+            STOCKS_DB.push({ sym: p.sym, name: p.name, sector: p.sector, price: p.price, change: 0, color: p.color });
         }
-    );
+    });
+
+    // Store AI selection globally for the AI Optimizer to consume
+    const totalInvested = builderPortfolioPreview.reduce((s, p) => s + p.shares * p.avgCost, 0);
+    window.__aiBuilderPortfolio = {
+        stocks: builderPortfolioPreview.map(p => ({
+            sym: p.sym, name: p.name, sector: p.sector, price: p.price,
+            shares: p.shares, avgCost: p.avgCost, weight: p.weight,
+            scores: p.scores, ratios: p.ratios, color: p.color,
+        })),
+        capital: totalInvested,
+        strategy: document.getElementById('builderWeighting')?.value || 'balanced',
+        timestamp: Date.now(),
+    };
+
+    // Dispatch event so AI Optimizer can react
+    window.dispatchEvent(new CustomEvent('aiBuilder:selected', { detail: window.__aiBuilderPortfolio }));
+
+    closeSectorBuilder();
+
+    // Switch to AI Optimizer tab
+    if (typeof switchTab === 'function') switchTab('ai-optimizer');
+
+    // Refresh ticker tape with new stocks
+    buildTickerTape(); updateTickerTape();
+    refreshLivePrices().catch(() => {});
+
+    notify(`✓ ${builderPortfolioPreview.length} AI stocks sent to AI Optimizer — your portfolio is unchanged`, 'success');
 }
 
 // =============================================

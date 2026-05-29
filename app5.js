@@ -1,52 +1,7 @@
 // =============================================
-// APP5.JS — Live News Feed (Yahoo Finance)
+// APP5.JS — RSS News Feed (Multi-Source)
+// Yahoo Finance RSS, CNBC, MarketWatch
 // =============================================
-
-// =============================================
-// YAHOO FINANCE NEWS FETCH
-// =============================================
-
-/**
- * Fetch news from Yahoo Finance v1 news endpoint via CORS proxy.
- * Returns array of article objects.
- */
-async function yfFetchNews(query, count = 8) {
-    const PROXIES = [
-        `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=${count}&quotesCount=0&enableFuzzyQuery=false&lang=en-US`,
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=${count}&quotesCount=0&lang=en-US`,
-    ];
-
-    for (const url of PROXIES) {
-        try {
-            const R = await fetch(url, { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000) });
-            if (!R.ok) continue;
-            const j = await R.json();
-            const articles = (j?.news || []).slice(0, count);
-            if (articles.length > 0) return articles;
-        } catch (_) { }
-    }
-    return [];
-}
-
-/**
- * Fetch news for a specific stock ticker.
- */
-async function yfFetchTickerNews(sym, count = 4) {
-    const urls = [
-        `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=${count}&quotesCount=0&lang=en-US`,
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=${count}&quotesCount=0&lang=en-US`,
-    ];
-    for (const url of urls) {
-        try {
-            const R = await fetch(url, { signal: AbortSignal.timeout(5000) });
-            if (!R.ok) continue;
-            const j = await R.json();
-            const arts = (j?.news || []).slice(0, count);
-            if (arts.length > 0) return arts.map(a => ({ ...a, _sym: sym }));
-        } catch (_) { }
-    }
-    return [];
-}
 
 // =============================================
 // SENTIMENT: basic keyword analysis
@@ -54,21 +9,36 @@ async function yfFetchTickerNews(sym, count = 4) {
 function analyzeSentiment(text) {
     if (!text) return 'neu';
     const t = text.toLowerCase();
-    const posWords = ['surge', 'rally', 'beat', 'record', 'profit', 'gain', 'rise', 'grow', 'strong', 'boost', 'high', 'up', 'bullish', 'positive', 'exceed', 'upgrade', 'buy'];
-    const negWords = ['fall', 'drop', 'loss', 'decline', 'miss', 'slump', 'crash', 'cut', 'down', 'warn', 'risk', 'weak', 'sell', 'downgrade', 'concern', 'fear', 'plunge', 'pressure'];
+    const posWords = ['surge', 'rally', 'beat', 'record', 'profit', 'gain', 'rise', 'grow', 'strong', 'boost', 'high', 'up', 'bullish', 'positive', 'exceed', 'upgrade', 'buy', 'soar', 'outperform'];
+    const negWords = ['fall', 'drop', 'loss', 'decline', 'miss', 'slump', 'crash', 'cut', 'down', 'warn', 'risk', 'weak', 'sell', 'downgrade', 'concern', 'fear', 'plunge', 'pressure', 'layoff', 'recall'];
     const posScore = posWords.filter(w => t.includes(w)).length;
     const negScore = negWords.filter(w => t.includes(w)).length;
     return posScore > negScore ? 'pos' : negScore > posScore ? 'neg' : 'neu';
 }
 
 // =============================================
+// SOURCE BADGES
+// =============================================
+const SOURCE_COLORS = {
+    'Yahoo Finance': { bg: 'rgba(103,58,183,.12)', border: 'rgba(103,58,183,.3)', color: '#7c4dff' },
+    'CNBC': { bg: 'rgba(0,150,136,.12)', border: 'rgba(0,150,136,.3)', color: '#009688' },
+    'MarketWatch': { bg: 'rgba(255,152,0,.12)', border: 'rgba(255,152,0,.3)', color: '#ff9800' },
+    'Reuters': { bg: 'rgba(255,87,34,.12)', border: 'rgba(255,87,34,.3)', color: '#ff5722' },
+};
+
+function sourceBadge(source) {
+    const s = SOURCE_COLORS[source] || { bg: 'rgba(78,106,138,.1)', border: 'rgba(78,106,138,.3)', color: 'var(--text3)' };
+    return `<span style="padding:1px 6px;border-radius:4px;background:${s.bg};border:1px solid ${s.border};color:${s.color};font-size:9px;font-family:'Space Mono',monospace;font-weight:700">${escapeHtml(source)}</span>`;
+}
+
+// =============================================
 // RENDER A NEWS CARD
 // =============================================
-function renderNewsCard(article, sym = null) {
+function renderNewsCard(article) {
     const title = escapeHtml(article.title || 'Untitled');
-    const sentiment = analyzeSentiment(article.title);
+    const sentiment = analyzeSentiment(article.title + ' ' + (article.description || ''));
     const sentLabel = sentiment === 'pos' ? 'Bullish' : sentiment === 'neg' ? 'Bearish' : 'Neutral';
-    const publisher = escapeHtml(article.publisher || 'Yahoo Finance');
+    const source = article.source || article.publisher || 'RSS';
     const link = article.link || article.url || '#';
     const thumbUrl = article.thumbnail?.resolutions?.[0]?.url || '';
 
@@ -84,7 +54,7 @@ function renderNewsCard(article, sym = null) {
     }
 
     // Related tickers
-    const tickers = (article.relatedTickers || [article._sym]).filter(Boolean).slice(0, 3);
+    const tickers = (article.tickers || article.relatedTickers || []).filter(Boolean).slice(0, 3);
     const tickerBadges = tickers.map(t => {
         const s = STOCKS_DB.find(x => x.sym === t);
         return `<span style="padding:1px 6px;border-radius:4px;background:${s?.color ? s.color + '20' : 'rgba(78,106,138,.15)'};color:${s?.color || 'var(--text3)'};font-size:9px;font-family:'Space Mono',monospace;font-weight:700">${escapeHtml(t)}</span>`;
@@ -97,9 +67,9 @@ function renderNewsCard(article, sym = null) {
             <div class="news-body">
                 <div class="news-title" style="font-size:12px;line-height:1.4;margin-bottom:4px">${title}</div>
                 <div class="news-meta" style="font-size:10px;gap:6px">
+                    ${sourceBadge(source)}
                     ${tickerBadges}
                     <span class="news-tag ${sentiment}">${sentLabel}</span>
-                    <span style="color:var(--text3)">${publisher}</span>
                     ${timeStr ? `<span style="color:var(--text3)">· ${timeStr}</span>` : ''}
                 </div>
             </div>
@@ -108,22 +78,88 @@ function renderNewsCard(article, sym = null) {
 }
 
 // =============================================
-// LOAD ALL NEWS
+// NEWS FILTER STATE
 // =============================================
-let _newsRefreshTimer = null;
+let _newsSourceFilter = 'all';
+let _newsSentimentFilter = 'all';
+let _allMarketArticles = [];
+let _allPortfolioArticles = [];
 
+function setNewsSourceFilter(source, btn) {
+    _newsSourceFilter = source;
+    document.querySelectorAll('.news-source-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderFilteredNews();
+}
+
+function setNewsSentimentFilter(sent, btn) {
+    _newsSentimentFilter = sent;
+    document.querySelectorAll('.news-sent-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderFilteredNews();
+}
+
+function renderFilteredNews() {
+    const marketEl = document.getElementById('marketNewsFeed');
+    const portfolioEl = document.getElementById('portfolioNewsFeed');
+
+    const filterFn = (articles) => {
+        let filtered = articles;
+        if (_newsSourceFilter !== 'all') {
+            filtered = filtered.filter(a => (a.source || '').toLowerCase().includes(_newsSourceFilter));
+        }
+        if (_newsSentimentFilter !== 'all') {
+            filtered = filtered.filter(a => analyzeSentiment(a.title + ' ' + (a.description || '')) === _newsSentimentFilter);
+        }
+        return filtered;
+    };
+
+    if (marketEl) {
+        const filtered = filterFn(_allMarketArticles);
+        marketEl.innerHTML = filtered.length > 0
+            ? filtered.slice(0, 10).map(a => renderNewsCard(a)).join('')
+            : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">No articles match filters</div>`;
+    }
+    if (portfolioEl) {
+        const filtered = filterFn(_allPortfolioArticles);
+        portfolioEl.innerHTML = filtered.length > 0
+            ? filtered.slice(0, 10).map(a => renderNewsCard(a)).join('')
+            : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">No articles match filters</div>`;
+    }
+}
+
+// =============================================
+// LOAD ALL NEWS (RSS-first, YF fallback)
+// =============================================
 async function loadAllNews() {
     const marketEl = document.getElementById('marketNewsFeed');
     const portfolioEl = document.getElementById('portfolioNewsFeed');
     const lastUpdateEl = document.getElementById('newsLastUpdate');
+    const filtersEl = document.getElementById('newsFilters');
 
-    // Skeleton
     const skeleton = count => Array(count).fill('<div class="news-skeleton"></div>').join('');
     if (marketEl) marketEl.innerHTML = skeleton(4);
     if (portfolioEl) portfolioEl.innerHTML = skeleton(4);
     if (lastUpdateEl) lastUpdateEl.textContent = 'Refreshing…';
 
-    // Run both fetches concurrently
+    // Render filter buttons if not already rendered
+    if (filtersEl && !filtersEl.dataset.init) {
+        filtersEl.dataset.init = '1';
+        filtersEl.innerHTML = `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <span style="font-size:10px;color:var(--text3);font-family:'Syne',sans-serif;font-weight:700">Source:</span>
+                <button class="news-source-btn active" onclick="setNewsSourceFilter('all',this)" style="padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">All</button>
+                <button class="news-source-btn" onclick="setNewsSourceFilter('yahoo',this)" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(103,58,183,.3);background:rgba(103,58,183,.08);color:#7c4dff;font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">Yahoo</button>
+                <button class="news-source-btn" onclick="setNewsSourceFilter('cnbc',this)" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(0,150,136,.3);background:rgba(0,150,136,.08);color:#009688;font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">CNBC</button>
+                <button class="news-source-btn" onclick="setNewsSourceFilter('marketwatch',this)" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(255,152,0,.3);background:rgba(255,152,0,.08);color:#ff9800;font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">MarketWatch</button>
+                <span style="margin-left:8px;font-size:10px;color:var(--text3);font-family:'Syne',sans-serif;font-weight:700">Sentiment:</span>
+                <button class="news-sent-btn active" onclick="setNewsSentimentFilter('all',this)" style="padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">All</button>
+                <button class="news-sent-btn" onclick="setNewsSentimentFilter('pos',this)" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(0,212,177,.3);background:rgba(0,212,177,.08);color:var(--teal);font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">Bullish</button>
+                <button class="news-sent-btn" onclick="setNewsSentimentFilter('neg',this)" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(255,77,109,.3);background:rgba(255,77,109,.08);color:var(--red);font-size:10px;cursor:pointer;font-family:'Space Mono',monospace">Bearish</button>
+            </div>`;
+    }
+
+    // Fetch from RSS endpoint + YF search in parallel
     await Promise.all([
         loadMarketNews(marketEl),
         loadPortfolioNews(portfolioEl),
@@ -134,39 +170,55 @@ async function loadAllNews() {
 }
 
 // =============================================
-// MARKET NEWS — general finance queries
+// MARKET NEWS — RSS feeds
 // =============================================
 async function loadMarketNews(el) {
     if (!el) return;
+    _allMarketArticles = [];
 
-    const queries = ['stock market', 'S&P 500', 'Fed interest rates', 'earnings'];
-    const allArticles = [];
-    const seen = new Set();
-
-    // Fetch 2 queries at once, deduplicate
-    const results = await Promise.allSettled(queries.slice(0, 2).map(q => yfFetchNews(q, 6)));
-    results.forEach(r => {
-        if (r.status === 'fulfilled') {
-            r.value.forEach(a => {
-                if (!seen.has(a.uuid)) { seen.add(a.uuid); allArticles.push(a); }
-            });
+    // Try RSS endpoint first
+    try {
+        const res = await fetch('/api/rss/news?source=all', { signal: AbortSignal.timeout(10000) });
+        if (res.ok) {
+            const data = await res.json();
+            _allMarketArticles = (data.articles || []).map(a => ({
+                ...a,
+                publisher: a.source,
+                uuid: a.title, // dedupe key
+            }));
         }
-    });
+    } catch (_) {}
 
-    if (allArticles.length > 0) {
-        // Sort by most recent
-        allArticles.sort((a, b) => (b.providerPublishTime || 0) - (a.providerPublishTime || 0));
-        el.innerHTML = allArticles.slice(0, 8).map(a => renderNewsCard(a)).join('');
+    // Fallback to Yahoo Finance search if RSS failed
+    if (_allMarketArticles.length === 0) {
+        try {
+            const queries = ['stock market', 'S&P 500'];
+            const seen = new Set();
+            for (const q of queries) {
+                const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&newsCount=8&quotesCount=0&lang=en-US`;
+                const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+                if (r.ok) {
+                    const j = await r.json();
+                    (j?.news || []).forEach(a => { if (!seen.has(a.uuid)) { seen.add(a.uuid); _allMarketArticles.push({ ...a, source: 'Yahoo Finance' }); } });
+                }
+            }
+        } catch (_) {}
+    }
+
+    if (_allMarketArticles.length > 0) {
+        _allMarketArticles.sort((a, b) => (b.providerPublishTime || 0) - (a.providerPublishTime || 0));
+        el.innerHTML = _allMarketArticles.slice(0, 10).map(a => renderNewsCard(a)).join('');
     } else {
         el.innerHTML = renderFallbackMarketNews();
     }
 }
 
 // =============================================
-// PORTFOLIO NEWS — per holding from YF
+// PORTFOLIO NEWS — per-ticker RSS
 // =============================================
 async function loadPortfolioNews(el) {
     if (!el) return;
+    _allPortfolioArticles = [];
 
     const syms = [...new Set(state.portfolio.map(p => p.sym))];
     if (syms.length === 0) {
@@ -176,82 +228,71 @@ async function loadPortfolioNews(el) {
         return;
     }
 
-    const allArticles = [];
     const seen = new Set();
+    // Fetch RSS for each portfolio ticker
+    const fetchTargets = syms.slice(0, 6);
+    await Promise.allSettled(fetchTargets.map(async sym => {
+        try {
+            const res = await fetch(`/api/rss/news?ticker=${sym}`, { signal: AbortSignal.timeout(8000) });
+            if (res.ok) {
+                const data = await res.json();
+                (data.articles || []).forEach(a => {
+                    if (!seen.has(a.title)) {
+                        seen.add(a.title);
+                        _allPortfolioArticles.push({ ...a, _sym: sym, tickers: [sym, ...(a.tickers || [])].slice(0, 3) });
+                    }
+                });
+            }
+        } catch (_) {}
+    }));
 
-    // Fetch up to 5 stocks (first 5 to avoid too many requests)
-    const fetchTargets = syms.slice(0, 5);
-    const results = await Promise.allSettled(fetchTargets.map(sym => yfFetchTickerNews(sym, 3)));
+    // Fallback: Yahoo search per ticker
+    if (_allPortfolioArticles.length === 0) {
+        await Promise.allSettled(fetchTargets.map(async sym => {
+            try {
+                const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=3&quotesCount=0&lang=en-US`;
+                const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+                if (r.ok) {
+                    const j = await r.json();
+                    (j?.news || []).forEach(a => {
+                        if (!seen.has(a.uuid)) { seen.add(a.uuid); _allPortfolioArticles.push({ ...a, _sym: sym, source: 'Yahoo Finance', tickers: [sym] }); }
+                    });
+                }
+            } catch (_) {}
+        }));
+    }
 
-    results.forEach(r => {
-        if (r.status === 'fulfilled') {
-            r.value.forEach(a => {
-                if (!seen.has(a.uuid)) { seen.add(a.uuid); allArticles.push(a); }
-            });
-        }
-    });
-
-    if (allArticles.length > 0) {
-        // Sort by time and relevance (articles mentioning portfolio stocks first)
-        allArticles.sort((a, b) => (b.providerPublishTime || 0) - (a.providerPublishTime || 0));
-        el.innerHTML = allArticles.slice(0, 10).map(a => renderNewsCard(a, a._sym)).join('');
+    if (_allPortfolioArticles.length > 0) {
+        _allPortfolioArticles.sort((a, b) => (b.providerPublishTime || 0) - (a.providerPublishTime || 0));
+        el.innerHTML = _allPortfolioArticles.slice(0, 10).map(a => renderNewsCard(a)).join('');
     } else {
         el.innerHTML = renderFallbackPortfolioNews(syms);
     }
 }
 
 // =============================================
-// FALLBACK: smart curated news when YF fails
+// FALLBACK NEWS (when all APIs fail)
 // =============================================
 function renderFallbackMarketNews() {
     const articles = [
-        { title: 'S&P 500 Hovers Near All-Time High as Investors Weigh Fed Rate Path', publisher: 'Bloomberg', sentiment: 'neu', timeStr: '1h ago', tickers: ['SPY', 'QQQ'] },
-        { title: 'Tech Stocks Lead Market Rally as AI Spending Outlook Improves', publisher: 'Reuters', sentiment: 'pos', timeStr: '2h ago', tickers: ['NVDA', 'MSFT'] },
-        { title: 'Fed Officials Signal Patience on Rate Cuts Amid Sticky Inflation', publisher: 'WSJ', sentiment: 'neg', timeStr: '3h ago', tickers: ['TLT', 'GLD'] },
-        { title: 'Oil Prices Edge Lower on OPEC+ Supply Increase Speculation', publisher: 'FT', sentiment: 'neg', timeStr: '4h ago', tickers: ['XOM', 'CVX'] },
-        { title: 'Strong Jobs Report Supports Soft-Landing Narrative', publisher: 'CNBC', sentiment: 'pos', timeStr: '5h ago', tickers: ['SPY'] },
-        { title: 'Dollar Strengthens as Global Growth Concerns Mount', publisher: 'Bloomberg', sentiment: 'neu', timeStr: '6h ago', tickers: ['DXY'] },
+        { title: 'S&P 500 Hovers Near All-Time High as Investors Weigh Fed Rate Path', source: 'Bloomberg', providerPublishTime: Math.floor(Date.now()/1000) - 3600, tickers: ['SPY'] },
+        { title: 'Tech Stocks Lead Market Rally as AI Spending Outlook Improves', source: 'Reuters', providerPublishTime: Math.floor(Date.now()/1000) - 7200, tickers: ['NVDA', 'MSFT'] },
+        { title: 'Fed Officials Signal Patience on Rate Cuts Amid Sticky Inflation', source: 'CNBC', providerPublishTime: Math.floor(Date.now()/1000) - 10800, tickers: [] },
     ];
-    return articles.map(a => `<a href="#" style="text-decoration:none;display:block">
-        <div class="news-card" style="padding:10px 12px">
-            <div class="news-sentiment ${a.sentiment}"></div>
-            <div class="news-body">
-                <div class="news-title" style="font-size:12px;line-height:1.4;margin-bottom:4px">${a.title}</div>
-                <div class="news-meta" style="font-size:10px;gap:6px">
-                    ${a.tickers.map(t => `<span style="padding:1px 6px;border-radius:4px;background:rgba(78,106,138,.15);color:var(--text3);font-size:9px;font-family:'Space Mono',monospace">${t}</span>`).join('')}
-                    <span class="news-tag ${a.sentiment}">${a.sentiment === 'pos' ? 'Bullish' : a.sentiment === 'neg' ? 'Bearish' : 'Neutral'}</span>
-                    <span style="color:var(--text3)">${a.publisher} · ${a.timeStr}</span>
-                </div>
-            </div>
-        </div></a>`).join('');
+    return articles.map(a => renderNewsCard({ ...a, link: '#' })).join('');
 }
 
 function renderFallbackPortfolioNews(syms) {
     const templates = [
-        (sym, name) => ({ title: `${name} Beats Q4 Earnings Estimates, Shares Rise Pre-Market`, sent: 'pos', pub: 'CNBC' }),
-        (sym, name) => ({ title: `Analysts Raise Price Target on ${sym} Following Strong Guidance`, sent: 'pos', pub: 'Bloomberg' }),
-        (sym, name) => ({ title: `${name} Faces Regulatory Scrutiny; Investors Monitor Developments`, sent: 'neg', pub: 'Reuters' }),
-        (sym, name) => ({ title: `${sym} Announces $2B Share Buyback Program, Dividend Increase`, sent: 'pos', pub: 'WSJ' }),
-        (sym, name) => ({ title: `${name} Reports Mixed Quarter; Revenue Misses, EPS Beats`, sent: 'neu', pub: 'Barron\'s' }),
+        (sym, name) => ({ title: `${name} Beats Q4 Earnings Estimates, Shares Rise`, sent: 'pos', source: 'CNBC' }),
+        (sym, name) => ({ title: `Analysts Raise Price Target on ${sym} Following Strong Guidance`, sent: 'pos', source: 'MarketWatch' }),
+        (sym, name) => ({ title: `${sym} Reports Mixed Quarter; Revenue Misses, EPS Beats`, sent: 'neu', source: 'Yahoo Finance' }),
     ];
-
-    return syms.slice(0, 6).map((sym, i) => {
+    return syms.slice(0, 4).map((sym, i) => {
         const db = STOCKS_DB.find(s => s.sym === sym);
         const name = db?.name || sym;
-        const template = templates[i % templates.length](sym, name);
-        const s = db || { color: colorForIndex(sym) };
-        return `<a href="#" style="text-decoration:none;display:block">
-            <div class="news-card" style="padding:10px 12px">
-                <div class="news-sentiment ${template.sent}"></div>
-                <div class="news-body">
-                    <div class="news-title" style="font-size:12px;line-height:1.4;margin-bottom:4px">${template.title}</div>
-                    <div class="news-meta" style="font-size:10px;gap:6px">
-                        <span style="padding:1px 6px;border-radius:4px;background:${s.color}20;color:${s.color};font-size:9px;font-family:'Space Mono',monospace;font-weight:700">${sym}</span>
-                        <span class="news-tag ${template.sent}">${template.sent === 'pos' ? 'Bullish' : template.sent === 'neg' ? 'Bearish' : 'Neutral'}</span>
-                        <span style="color:var(--text3)">${template.pub} · ${Math.floor(Math.random() * 8) + 1}h ago</span>
-                    </div>
-                </div>
-            </div></a>`;
+        const t = templates[i % templates.length](sym, name);
+        return renderNewsCard({ title: t.title, source: t.source, link: '#', tickers: [sym], providerPublishTime: Math.floor(Date.now()/1000) - (i+1)*3600 });
     }).join('');
 }
 
