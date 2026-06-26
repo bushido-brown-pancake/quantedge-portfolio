@@ -255,8 +255,38 @@ async function renderDynamicComparisonChart() {
         </div>`).join('');
     }
 
+    // ── Ensure live prices are fetched BEFORE generating chart series ──
+    // This fixes the bug where Portfolio B appeared flat because livePrices
+    // hadn't been populated yet when the chart was rendered.
+    async function ensurePricesLoaded(holdings) {
+        const fetchPromises = holdings.map(async (h) => {
+            // Skip if we already have a cached price
+            if (livePrices[h.sym]) return;
+            try {
+                const data = await fetchLivePrice(h.sym);
+                if (data) {
+                    data._ts = Date.now();
+                    livePrices[h.sym] = data;
+                    h.name = data.name || h.name;
+                } else {
+                    // Fallback to STOCKS_DB
+                    const dbData = STOCKS_DB.find(s => s.sym === h.sym);
+                    if (dbData) {
+                        livePrices[h.sym] = { price: dbData.price, change: dbData.change, name: dbData.name, _ts: Date.now() };
+                    }
+                }
+            } catch (_) { }
+        });
+        await Promise.all(fetchPromises);
+    }
+
+    await Promise.all([
+        ensurePricesLoaded(compState.A.holdings),
+        ensurePricesLoaded(compState.B.holdings),
+    ]);
+
     // Generate simulated cumulative return series per portfolio
-    function genPortfolioSeries(holdings, baseColor) {
+    function genPortfolioSeries(holdings) {
         if (holdings.length === 0) return Array(n).fill(null);
         // Avg daily change drives the trend
         const avgChg = holdings.reduce((s, h) => {
@@ -265,8 +295,10 @@ async function renderDynamicComparisonChart() {
             return s + (lp?.change ?? db?.change ?? 0.5);
         }, 0) / holdings.length;
 
-        const annualReturn = (avgChg * 252 * 0.3) / 100; // rough annualisation
-        const vol = (8 + Math.abs(avgChg) * 3) / 100;
+        // Clamp avgChg to a reasonable range to prevent runaway exponential growth
+        const clampedChg = Math.max(-5, Math.min(5, avgChg));
+        const annualReturn = (clampedChg * 252 * 0.3) / 100; // rough annualisation
+        const vol = (8 + Math.abs(clampedChg) * 3) / 100;
         let v = 100;
         return Array.from({ length: n }, (_, i) => {
             v *= (1 + annualReturn / 12 + (Math.random() - 0.48) * vol / Math.sqrt(12));
@@ -274,13 +306,15 @@ async function renderDynamicComparisonChart() {
         });
     }
 
-    const seriesA = genPortfolioSeries(compState.A.holdings, '#d4a843');
-    const seriesB = genPortfolioSeries(compState.B.holdings, '#4d9fff');
+    const seriesA = genPortfolioSeries(compState.A.holdings);
+    const seriesB = genPortfolioSeries(compState.B.holdings);
 
-    // Also add S&P 500 benchmark
+    // Also add S&P 500 benchmark (~10% annual return, ~15% volatility)
+    const spxAnnualReturn = 0.10;
+    const spxVol = 0.15;
     let vIdx = 100;
     const spx = Array.from({ length: n }, () => {
-        vIdx *= (1 + 0.009 / 12 * 12 + (Math.random() - 0.49) * 0.04 / Math.sqrt(12) * 12);
+        vIdx *= (1 + spxAnnualReturn / 12 + (Math.random() - 0.5) * spxVol / Math.sqrt(12));
         return +vIdx.toFixed(2);
     });
 
